@@ -1,11 +1,12 @@
-import PrivilegesEditor from '../app.js';
+import ServerEditor from '../app.js';
 import { bindUi } from './ui.js';
 import { bind as bindFtp, quickDownload, fetchRemoteFile } from './ftp.js';
 import { renderGroups } from './render.js';
 import { showConfirm } from './helpers.js';
 
-try {
-    const app = new PrivilegesEditor();
+try
+{
+    const app = new ServerEditor();
     app.init();
 
     fetch('/data/cfg.presets.json')
@@ -21,7 +22,8 @@ try {
 
     //! applyFileTypeUI - update UI controls to match selected file type
     //! \returns void
-    function applyFileTypeUI() {
+    function applyFileTypeUI()
+    {
         const fileType = fileTypeEl?.value || 'privileges';
         try { app.state.currentFileType = fileType; } catch (e) { }
 
@@ -30,58 +32,67 @@ try {
         const addGroupBtn = document.getElementById('addGroupBtn');
         const step2Header = document.querySelector('#step2 h5');
 
-        if (paste) {
+        if (paste)
+        {
             paste.placeholder = fileType === 'cfg'
                 ? 'Paste dedicated.cfg contents here'
-                : 'Paste contents or drag & drop privileges.xml here';
+                : 'Paste contents or drag & drop server file here';
         }
 
-        if (newBtn) {
+        if (newBtn)
+        {
             newBtn.textContent = fileType === 'cfg' ? 'new blank dedicated.cfg' : 'new blank privileges.xml';
         }
 
-        if (fileType === 'cfg') {
+        if (fileType === 'cfg')
+        {
             if (addGroupBtn) addGroupBtn.style.display = 'none';
             if (step2Header) { step2Header.style.display = 'none'; step2Header.textContent = ''; }
-            if (app.state.cfgEntries) {
+            if (app.state.cfgEntries)
+            {
                 import('./render.js').then(m => { if (m && m.renderCfg) m.renderCfg(app); }).catch(() => { });
             }
-        } else {
+        } else
+        {
             if (addGroupBtn) addGroupBtn.style.display = '';
             if (step2Header) { step2Header.style.display = ''; step2Header.textContent = 'Edit Steam IDs'; }
             if (app.state.groups) renderGroups(app);
         }
 
         const loadBtn = document.getElementById('loadBtn');
-        if (loadBtn) loadBtn.textContent = fileType === 'cfg' ? 'Edit CFG >' : 'Edit XML >';
+        if (loadBtn) loadBtn.textContent = fileType === 'cfg' ? 'Edit CFG >' : 'Edit Server File >';
 
         const step3Header = document.querySelector('#step3 h5');
-        if (step3Header) step3Header.textContent = fileType === 'cfg' ? 'Export CFG' : 'Export XML';
+        if (step3Header) step3Header.textContent = fileType === 'cfg' ? 'Export CFG' : 'Export File';
 
         const downloadBtn = document.getElementById('downloadBtn');
-        if (downloadBtn) downloadBtn.textContent = fileType === 'cfg' ? 'Download CFG' : 'Download XML';
+        if (downloadBtn) downloadBtn.textContent = fileType === 'cfg' ? 'Download CFG' : 'Download File';
     }
 
     try { window.applyFileTypeUI = applyFileTypeUI; } catch (e) { }
 
     //! awaitRenderCfg - ensure render module is loaded and render cfg
-    //! \param app - PrivilegesEditor instance
-    function awaitRenderCfg(app) {
+    //! \param app - ServerEditor instance
+    function awaitRenderCfg(app)
+    {
         import('./render.js')
             .then(m => { if (m && m.renderCfg) m.renderCfg(app); })
             .catch(() => { });
     }
 
-    fileTypeEl?.addEventListener('change', async () => {
+    fileTypeEl?.addEventListener('change', async () =>
+    {
         applyFileTypeUI();
 
-        try {
+        try
+        {
             const creds = app.state.ftpCredentials;
             const fileTypeCurr = fileTypeEl?.value || 'privileges';
             const defaultPath = fileTypeCurr === 'cfg' ? '/dedicated.cfg' : '/Assets/privileges.xml';
             const expectSuffix = fileTypeCurr === 'cfg' ? 'dedicated.cfg' : 'privileges.xml';
 
-            if (creds) {
+            if (creds)
+            {
                 const storedPath = creds.remotePath || '';
                 const usePath = (storedPath && storedPath.endsWith(expectSuffix)) ? storedPath : defaultPath;
                 app.state.ftpCredentials = Object.assign({}, creds, { remotePath: usePath });
@@ -89,35 +100,42 @@ try {
             }
         } catch (e) { }
 
-        try {
+        try
+        {
             const step1Visible = !document.getElementById('step1')?.classList.contains('d-none');
             const step2Visible = !document.getElementById('step2')?.classList.contains('d-none');
             const step3Visible = !document.getElementById('step3')?.classList.contains('d-none');
             const creds = app.state.ftpCredentials;
 
-            if ((step1Visible || step2Visible || step3Visible) && creds && creds.host && creds.user) {
+            if ((step1Visible || step2Visible || step3Visible) && creds && creds.host && creds.user)
+            {
                 const fileType = fileTypeEl?.value || 'privileges';
 
-                if (app.hasUnsavedChanges && app.hasUnsavedChanges()) {
+                if (app.hasUnsavedChanges && app.hasUnsavedChanges())
+                {
                     if (!(await showConfirm('You have unsaved changes. Loading the server file will overwrite them. Continue?'))) return;
                 }
 
                 const txt = await fetchRemoteFile(app, fileType);
                 if (txt === null) return;
 
-                if (step1Visible) {
+                if (step1Visible)
+                {
                     const paste = document.getElementById('pasteXml');
                     if (paste) paste.value = txt;
                     app.state.lastLoadedRaw = txt;
                     return;
                 }
 
-                if (step2Visible) {
-                    if (fileType === 'cfg') {
+                if (step2Visible)
+                {
+                    if (fileType === 'cfg')
+                    {
                         app.state.cfgEntries = app.parseCfg(txt || '');
                         try { const m = await import('./render.js'); if (m && m.renderCfg) m.renderCfg(app); } catch (e) { }
                         app.state.lastLoadedRaw = txt;
-                    } else {
+                    } else
+                    {
                         app.state.groups = app.parsePrivilegesXml(txt || '');
                         try { if (typeof renderGroups !== 'undefined') renderGroups(app); } catch (e) { }
                         try { await app.validateAll(); } catch (e) { }
@@ -126,12 +144,15 @@ try {
                     return;
                 }
 
-                if (step3Visible) {
-                    if (fileType === 'cfg') {
+                if (step3Visible)
+                {
+                    if (fileType === 'cfg')
+                    {
                         app.state.cfgEntries = app.parseCfg(txt || '');
                         try { const m = await import('./render.js'); if (m && m.renderCfg) m.renderCfg(app); } catch (e) { }
                         app.state.lastLoadedRaw = txt;
-                    } else {
+                    } else
+                    {
                         app.state.groups = app.parsePrivilegesXml(txt || '');
                         try { if (typeof renderGroups !== 'undefined') renderGroups(app); } catch (e) { }
                         try { await app.validateAll(); } catch (e) { }
@@ -150,7 +171,8 @@ try {
     const fileTypeWrap = document.getElementById('fileTypeWrap');
 
     //! updateFileToggleVisibility - show/hide file type toggle based on context
-    function updateFileToggleVisibility() {
+    function updateFileToggleVisibility()
+    {
         if (!fileTypeWrap || !step1El) return;
 
         const step2El = document.getElementById('step2');
@@ -165,13 +187,14 @@ try {
     updateFileToggleVisibility();
     try { if (step1El) new MutationObserver(updateFileToggleVisibility).observe(step1El, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
 
-    window.privApp = app;
+    window.serverApp = app;
 
     const step1btn = document.getElementById('step1btn');
     const step2btn = document.getElementById('step2btn');
     const step3btn = document.getElementById('step3btn');
 
-    step1btn?.addEventListener('click', async () => {
+    step1btn?.addEventListener('click', async () =>
+    {
         try { if (app.hasUnsavedChanges && app.hasUnsavedChanges()) { if (!(await showConfirm('You have unsaved changes. Going back will discard them. Continue?'))) return; } } catch (e) { }
         app.setStep(1);
     });
@@ -185,13 +208,17 @@ try {
     const fileTypeEditFtpBtn = document.getElementById('fileTypeEditFtpBtn');
 
     //! updateQuickBox - show/hide quick FTP box based on saved creds
-    function updateQuickBox() {
-        try {
+    function updateQuickBox()
+    {
+        try
+        {
             const creds = app.state.ftpCredentials;
             const step2Visible = !document.getElementById('step2')?.classList.contains('d-none');
-            if (creds && creds.host && creds.user && step2Visible) {
+            if (creds && creds.host && creds.user && step2Visible)
+            {
                 if (quickBox) quickBox.classList.remove('d-none');
-            } else {
+            } else
+            {
                 if (quickBox) quickBox.classList.add('d-none');
             }
         } catch (e) { }
@@ -203,16 +230,19 @@ try {
     const quickEdit = document.getElementById('quickEditCredsBtn');
     quickEdit?.addEventListener('click', () => { document.getElementById('ftpChangeBtn')?.click(); });
 
-    if (fileTypeEditFtpBtn) {
+    if (fileTypeEditFtpBtn)
+    {
         fileTypeEditFtpBtn.addEventListener('click', () => { document.getElementById('ftpChangeBtn')?.click(); });
     }
 
     updateQuickBox();
 
-    try {
+    try
+    {
         const credsInit = app.state.ftpCredentials;
         const btnInit = document.getElementById('fileTypeEditFtpBtn');
-        if (btnInit) {
+        if (btnInit)
+        {
             if (credsInit && credsInit.host && credsInit.user) btnInit.classList.remove('d-none');
             else btnInit.classList.add('d-none');
         }
@@ -221,29 +251,37 @@ try {
     window.addEventListener('ftpCredsChanged', updateQuickBox);
     window.addEventListener('ftpCredsChanged', updateFileToggleVisibility);
 
-    window.addEventListener('ftpCredsChanged', () => {
-        try {
+    window.addEventListener('ftpCredsChanged', () =>
+    {
+        try
+        {
             const creds = app.state.ftpCredentials;
             const btn = document.getElementById('fileTypeEditFtpBtn');
-            if (btn) {
-                if (creds && creds.host && creds.user) {
+            if (btn)
+            {
+                if (creds && creds.host && creds.user)
+                {
                     btn.classList.remove('d-none');
                     btn.textContent = 'Edit FTP';
-                } else {
+                } else
+                {
                     btn.classList.add('d-none');
                 }
             }
         } catch (e) { }
     });
 
-    window.addEventListener('ftpCredsChanged', () => {
-        try {
+    window.addEventListener('ftpCredsChanged', () =>
+    {
+        try
+        {
             const creds = app.state.ftpCredentials;
             const loadBtn = document.getElementById('loadFtpBtn');
             if (loadBtn) loadBtn.textContent = (creds && creds.host && creds.user) ? 'Edit FTP Connection' : 'Connect & Load';
         } catch (e) { }
     });
 
-} catch (e) {
-    console.error('Boot error initializing PrivilegesEditor:', e);
+} catch (e)
+{
+    console.error('Boot error initializing ServerEditor:', e);
 }

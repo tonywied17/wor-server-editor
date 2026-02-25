@@ -63,7 +63,15 @@ export function showProfileModal(steamid)
         document.getElementById('openSteamClientBtn').addEventListener('click', () =>
         {
             const url = `steam://openurl/https://steamcommunity.com/profiles/${encodeURIComponent(steamid)}`;
-            try { window.open(url, '_blank'); } catch (e) { showToast('Failed to open Steam client'); }
+            try
+            {
+                // Use an anchor click to invoke protocol handlers without creating about:blank
+                const a = document.createElement('a');
+                a.href = url; a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { try { a.remove(); } catch (e) { } }, 1000);
+            } catch (e) { showToast('Failed to open Steam client'); }
             modal.remove();
         });
         document.getElementById('openBrowserBtn').addEventListener('click', () =>

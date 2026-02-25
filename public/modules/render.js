@@ -1,7 +1,7 @@
 import { showProfileModal } from './helpers.js';
 
 //! renderGroups - render group cards into the DOM
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 export function renderGroups(app)
 {
     const H = { showProfileModal };
@@ -54,7 +54,19 @@ export function renderGroups(app)
             else
             {
                 const a = document.createElement('a'); a.href = '#'; a.className = 'avatar-link'; a.dataset.steamid = e.id || '';
-                const img = document.createElement('img'); img.src = e.avatar || ''; img.className = 'avatar-thumb'; img.onerror = function () { this.style.visibility = 'hidden'; };
+                const img = document.createElement('img');
+                img.className = 'avatar-thumb';
+                img.onerror = function () { this.style.visibility = 'hidden'; };
+                if (typeof e.avatar === 'string' && e.avatar)
+                {
+                    img.src = e.avatar;
+                    img.style.visibility = 'visible';
+                }
+                else
+                {
+                    img.src = '';
+                    img.style.visibility = 'hidden';
+                }
                 a.appendChild(img);
                 a.addEventListener('click', (ev) => { ev.preventDefault(); const id = a.dataset.steamid || ''; if (id) (H.showProfileModal || (() => { }))(id); });
                 avatarWrap.appendChild(a);
@@ -102,7 +114,7 @@ export function renderGroups(app)
 }
 
 //! renderCfg - render config editor UI
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 export function renderCfg(app)
 {
     const container = document.getElementById('groups');

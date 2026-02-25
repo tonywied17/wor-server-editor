@@ -8,6 +8,7 @@ export async function validateSingle(id)
         const r = await fetch('/validate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ steamids: [id] }) });
         if (!r.ok) return null;
         const j = await r.json();
+        try { console.debug('[api] validateSingle response for', id, j); } catch (e) { }
         return (j.results || [])[0] || null;
     } catch (e) { return null; }
 }
@@ -21,6 +22,7 @@ export async function validateBatch(ids)
         const r = await fetch('/validate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ steamids: ids }) });
         if (!r.ok) return null;
         const j = await r.json();
+        try { console.debug('[api] validateBatch response', j); } catch (e) { }
         return j.results || [];
     } catch (e) { return null; }
 }
@@ -35,15 +37,16 @@ export async function resolveSteamProfile(profileUrl)
         const r = await fetch(q, { method: 'GET' });
         if (!r.ok) return null;
         const j = await r.json();
+        try { console.debug('[api] resolveSteamProfile response for', profileUrl, j); } catch (e) { }
         return j;
     } catch (e) { return null; }
 }
 
-//! doFtpUpload - upload xml to FTP via server proxy
-//! \param {host,port,user,pass,xml,remotePath} - ftp options
-export async function doFtpUpload({ host, port, user, pass, xml, remotePath })
+//! doFtpUpload - upload server file (XML or CFG) to FTP via server proxy
+//! \param {host,port,user,pass,content,remotePath} - ftp options (content may be XML or CFG text)
+export async function doFtpUpload({ host, port, user, pass, content, remotePath })
 {
-    const body = { host, username: user, password: pass, xml };
+    const body = { host, username: user, password: pass, content };
     if (port) body.port = port;
     body.remotePath = remotePath || '/Assets/privileges.xml';
     const r = await fetch('/upload-ftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

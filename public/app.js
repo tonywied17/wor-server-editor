@@ -17,10 +17,10 @@ import { renderGroups, renderCfg } from './modules/render.js';
 import { showToast, showProfileModal } from './modules/helpers.js';
 import { updateFtpDisplay } from './modules/ftp.js';
 
-export default class PrivilegesEditor
+export default class ServerEditor
 {
   //! constructor - initialize editor state
-  //! \returns new PrivilegesEditor instance
+  //! \returns new ServerEditor instance
   constructor()
   {
     this.state = { groups: [], debounce: {}, ftpCredentials: null };
@@ -130,12 +130,14 @@ export default class PrivilegesEditor
       try
       {
         const resolved = await apiResolveSteamProfile(v);
+        try { console.debug('[client] resolveSteamProfile returned', resolved); } catch (e) { }
         if (resolved && resolved.steamid64)
         {
           entry.id = resolved.steamid64;
           entry.avatar = resolved.avatar || null;
           if (resolved.name && !entry.name) entry.name = resolved.name;
           const result = await apiValidateSingle(resolved.steamid64);
+          try { console.debug('[client] validateSingle returned', result); } catch (e) { }
           entry.valid = result ? result.valid : false;
           entry.avatar = result && result.avatar ? result.avatar : entry.avatar;
           if (result && result.name && !entry.name) entry.name = result.name;
@@ -389,15 +391,16 @@ export default class PrivilegesEditor
   }
 
   //! doFtpUpload - wrapper to api.doFtpUpload for class
-  //! \param {host,port,user,pass,xml} - ftp options
-  async doFtpUpload({ host, port, user, pass, xml })
+  //! \param {host,port,user,pass,content} - ftp options (content may be XML or CFG text)
+  async doFtpUpload({ host, port, user, pass, content })
   {
     const resDiv = document.getElementById('ftpResult'); if (resDiv) resDiv.innerText = 'Uploading...';
     try
     {
       const remotePathEl = document.getElementById('ftpModalRemotePath');
       const remotePath = remotePathEl ? remotePathEl.value.trim() : '/Assets/privileges.xml';
-      const r = await apiDoFtpUpload({ host, port, user, pass, xml, remotePath });
+      const payload = content || '';
+      const r = await apiDoFtpUpload({ host, port, user, pass, content: payload, remotePath });
       const j = r.json || {};
       if (r.ok) { if (resDiv) resDiv.innerText = 'Uploaded: ' + (j.uploadedTo || 'ok'); showToast('Upload successful', null, { type: 'success' }); }
       else { if (resDiv) resDiv.innerText = 'Error: ' + (j.error || JSON.stringify(j)); showToast('Upload error: ' + (j.error || JSON.stringify(j))); }
@@ -419,6 +422,6 @@ export default class PrivilegesEditor
   init()
   {
     //! init - attach global and perform initialization
-    window.privApp = this;
+    window.serverApp = this;
   }
 }

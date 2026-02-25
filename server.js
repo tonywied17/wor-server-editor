@@ -1,46 +1,52 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
-const { parseStringPromise } = require('xml2js');
 const path = require('path');
+const { createApp, json, cors, static: serveStatic, fetch } = require('molex-http');
+const { parse, extractString } = require('molex-xml-js');
 const FTPClient = require('molex-ftp');
 require('molex-env').load();
 
-const app = express();
+const app = createApp();
 app.use(cors());
-app.use(bodyParser.json({ limit: '5mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
+app.use(json({ limit: '5mb' }));
+app.use(serveStatic(path.join(__dirname, 'public')));
 
 app.post('/validate', async (req, res) =>
 {
   const steamids = Array.isArray(req.body.steamids) ? req.body.steamids : [];
-  const results = await Promise.all(steamids.map(async (id) =>
-  {
-    try
-    {
-      const url = `https://steamcommunity.com/profiles/${encodeURIComponent(id)}/?xml=1`;
-      const r = await fetch(url, { timeout: 8000 });
-      if (!r.ok) return { id, valid: false };
-      const text = await r.text();
-      const parsed = await parseStringPromise(text);
-      const player = parsed?.profile || {};
-      const avatar = player?.avatarFull?.[0] || player?.avatar?.[0] || null;
-      const name = player?.steamID?.[0] || player?.steamID32?.[0] || null;
-      return { id, valid: !!avatar, avatar, name };
-    } catch (e)
-    {
-      return { id, valid: false };
+  const concurrency = 6;
+  const results = new Array(steamids.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, steamids.length) }).map(async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= steamids.length) break;
+      const id = steamids[i];
+      try {
+        const url = `https://steamcommunity.com/profiles/${encodeURIComponent(id)}/?xml=1`;
+        const r = await fetch(url, { timeout: 8000 });
+        if (!r.ok) { results[i] = { id, valid: false }; continue; }
+        const text = await r.text();
+        const parsed = parse(text);
+        const player = parsed?.profile ? (Array.isArray(parsed.profile) ? parsed.profile[0] : parsed.profile) : {};
+        const name = extractString(player?.steamID?.[0] || player?.steamID32?.[0] || null);
+        const avatarRaw = player?.avatarFull?.[0] || player?.avatar?.[0] || null;
+        const avatar = extractString(avatarRaw);
+        results[i] = { id, valid: !!avatar, avatar, name };
+      } catch (e) {
+        results[i] = { id, valid: false };
+      }
     }
-  }));
+  });
+
+  await Promise.all(workers);
   res.json({ results });
 });
 
 app.post('/upload-ftp', async (req, res) =>
 {
-  const { host, port, username, password, xml, remotePath } = req.body;
-  if (!host || !username || !password || !xml) return res.status(400).json({ error: 'missing parameters' });
+  const { host, port, username, password, xml, content, remotePath } = req.body;
+  const payload = content || xml;
+  if (!host || !username || !password || !payload) return res.status(400).json({ error: 'missing parameters' });
 
   const client = new FTPClient({
     debug: true,
@@ -56,7 +62,7 @@ app.post('/upload-ftp', async (req, res) =>
   {
     await client.connect({ host, port: port || 21, user: username, password, timeout: 10000 });
     const target = remotePath || '/Assets/privileges.xml';
-    await client.upload(xml, target, true);
+    await client.upload(payload, target, true);
     res.json({ ok: true, uploadedTo: target, message: 'File uploaded successfully' });
   } catch (err)
   {
@@ -88,9 +94,9 @@ app.post('/download-ftp', async (req, res) =>
     const target = remotePath || '/Assets/privileges.xml';
 
     const buffer = await client.download(target);
-    const xml = buffer.toString('utf8');
+    const content = buffer.toString('utf8');
 
-    res.json({ ok: true, xml, message: 'File downloaded successfully' });
+    res.json({ ok: true, content, message: 'File downloaded successfully' });
   } catch (err)
   {
     res.status(500).json({ error: err.message || String(err) });
@@ -163,10 +169,10 @@ app.get('/resolve-steam', async (req, res) =>
     const pr = await fetch(profileXmlUrl, { timeout: 8000 });
     if (!pr.ok) return res.status(500).json({ error: 'Failed to fetch Steam profile' });
     const text = await pr.text();
-    const parsed = await parseStringPromise(text);
-    const player = parsed?.profile || {};
-    const avatar = player?.avatarFull?.[0] || player?.avatar?.[0] || null;
-    const name = player?.steamID?.[0] || player?.steamID32?.[0] || null;
+    const parsed = parse(text);
+    const player = parsed?.profile ? (Array.isArray(parsed.profile) ? parsed.profile[0] : parsed.profile) : {};
+    const name = extractString(player?.steamID?.[0] || player?.steamID32?.[0] || null);
+    const avatar = extractString(player?.avatarFull?.[0] || player?.avatar?.[0] || null);
 
     return res.json({ steamid64: String(resolvedSteamId64), avatar, name });
   } catch (err)

@@ -3,7 +3,7 @@ import { doFtpUpload, testFtpConnection } from './api.js';
 import { renderGroups, renderCfg } from './render.js';
 
 //! bind - bind FTP UI controls to the app
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 export function bind(app)
 {
     const loadFtpBtn = document.getElementById('loadFtpBtn');
@@ -112,7 +112,7 @@ export function bind(app)
                 const res = await fetch('/download-ftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
                 if (!res.ok) { const j = await res.json().catch(() => ({ error: res.statusText })); if (status) status.innerText = 'Download failed: ' + (j.error || res.statusText); document.getElementById('ftpModalConnect').disabled = false; return; }
                 const j = await res.json(); if (!j.ok) { if (status) status.innerText = 'Download failed'; document.getElementById('ftpModalConnect').disabled = false; return; }
-                const txt = j.xml || ''; document.getElementById('pasteXml').value = txt;
+                const txt = j.content || ''; document.getElementById('pasteXml').value = txt;
 
                 app.state.ftpCredentials = { host, port, user, pass, remotePath };
                 try { window.dispatchEvent(new CustomEvent('ftpCredsChanged')); } catch (e) { }
@@ -152,8 +152,8 @@ export function bind(app)
         const port = creds.port || 21;
         const user = creds.user;
         const pass = creds.pass;
-        const fileType = document.getElementById('fileTypeSelect')?.value || 'privileges';
-        const xml = fileType === 'cfg' ? app.buildCfg() : app.buildXml();
+            const fileType = document.getElementById('fileTypeSelect')?.value || 'privileges';
+            const content = fileType === 'cfg' ? app.buildCfg() : app.buildXml();
         const resDiv = document.getElementById('ftpResult');
         if (resDiv) resDiv.innerText = '';
 
@@ -168,12 +168,12 @@ export function bind(app)
             const chk = await fetch('/check-ftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host, port, username: user, password: pass, remotePath }) });
             if (!chk.ok) { const err = await chk.json(); showToast('FTP check failed: ' + (err.error || chk.statusText)); return; }
             const cj = await chk.json();
-            if (cj.exists)
+                if (cj.exists)
             {
                 const filePath = remotePath;
                 const sizeInfo = cj.size ? ` (${(cj.size / 1024).toFixed(1)} KB)` : '';
-                showToast(`File exists: ${filePath}${sizeInfo} — Overwrite?`, [{ label: 'Overwrite', style: 'btn-danger', onClick: async () => { const r = await doFtpUpload({ host, port, user, pass, xml, remotePath }); if (r.ok) showToast(r.json?.message || `Uploaded to ${filePath}`, null, { type: 'success' }); else showToast(r.json?.error || 'Upload error', null, { type: 'error' }); } }, { label: 'Cancel', style: 'btn-outline-secondary', onClick: () => { } }]);
-            } else { const r = await doFtpUpload({ host, port, user, pass, xml, remotePath }); if (r.ok) showToast(r.json?.message || 'Upload successful', null, { type: 'success' }); else showToast(r.json?.error || 'Upload error', null, { type: 'error' }); }
+                showToast(`File exists: ${filePath}${sizeInfo} — Overwrite?`, [{ label: 'Overwrite', style: 'btn-danger', onClick: async () => { const r = await doFtpUpload({ host, port, user, pass, content, remotePath }); if (r.ok) showToast(r.json?.message || `Uploaded to ${filePath}`, null, { type: 'success' }); else showToast(r.json?.error || 'Upload error', null, { type: 'error' }); } }, { label: 'Cancel', style: 'btn-outline-secondary', onClick: () => { } }]);
+            } else { const r = await doFtpUpload({ host, port, user, pass, content, remotePath }); if (r.ok) showToast(r.json?.message || 'Upload successful', null, { type: 'success' }); else showToast(r.json?.error || 'Upload error', null, { type: 'error' }); }
         } catch (e) { showToast('FTP check error: ' + e.message); }
     });
 
@@ -181,8 +181,8 @@ export function bind(app)
     {
         const modal = document.getElementById('ftpConnectModal');
         if (!modal) return showToast ? showToast('FTP modal not found') : null;
-        const fileType = document.getElementById('fileTypeSelect')?.value || 'privileges';
-        const defaultPath = fileType === 'cfg' ? '/dedicated.cfg' : '/Assets/privileges.xml';
+                const fileType = document.getElementById('fileTypeSelect')?.value || 'privileges';
+                const defaultPath = fileType === 'cfg' ? '/dedicated.cfg' : '/Assets/privileges.xml';
 
         document.getElementById('ftpModalHost').value = '';
         document.getElementById('ftpModalPort').value = '';
@@ -221,7 +221,7 @@ export function bind(app)
 }
 
 //! quickDownload - quickly download a file via saved FTP creds
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 //! \param fileType - 'cfg' or 'privileges'
 export async function quickDownload(app, fileType)
 {
@@ -244,7 +244,7 @@ export async function quickDownload(app, fileType)
         const res = await fetch('/download-ftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         if (!res.ok) { const j = await res.json().catch(() => ({ error: res.statusText })); if (typeof showToast === 'function') showToast('Download failed: ' + (j.error || res.statusText)); return null; }
         const j = await res.json(); if (!j.ok) { if (typeof showToast === 'function') showToast('Download failed'); return null; }
-        const txt = j.xml || '';
+        const txt = j.content || '';
 
         try { const detected = window.parser && window.parser.detectFileType ? window.parser.detectFileType(txt) : null; if (detected && detected !== 'unknown' && detected !== fileType) { if (typeof showToast === 'function') showToast(`Downloaded file looks like ${detected}. Not loading.`); return null; } } catch (e) { }
 
@@ -256,7 +256,7 @@ export async function quickDownload(app, fileType)
 }
 
 //! fetchRemoteFile - fetch a remote file via saved FTP creds
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 //! \param fileType - 'cfg' or 'privileges'
 export async function fetchRemoteFile(app, fileType)
 {
@@ -273,13 +273,13 @@ export async function fetchRemoteFile(app, fileType)
         const res = await fetch('/download-ftp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         if (!res.ok) { const j = await res.json().catch(() => ({ error: res.statusText })); if (typeof showToast === 'function') showToast('Download failed: ' + (j.error || res.statusText)); return null; }
         const j = await res.json(); if (!j.ok) { if (typeof showToast === 'function') showToast('Download failed'); return null; }
-        const txt = j.xml || '';
+        const txt = j.content || '';
         return txt;
     } catch (e) { if (typeof showToast === 'function') showToast('FTP fetch error: ' + e.message); return null; }
 }
 
 //! updateFtpDisplay - update FTP status display in UI
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 export function updateFtpDisplay(app)
 {
     const ftpConnected = document.getElementById('ftpConnected');

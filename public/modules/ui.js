@@ -3,7 +3,7 @@ import { detectFileType } from './parser.js';
 import { showToast, showConfirm } from './helpers.js';
 
 //! bindUi - wire up UI controls to the app
-//! \param app - PrivilegesEditor instance
+//! \param app - ServerEditor instance
 export function bindUi(app)
 {
     if (!app) return;
@@ -120,7 +120,7 @@ export function bindUi(app)
         const fileType = document.getElementById('fileTypeSelect')?.value || 'privileges';
         const txt = fileType === 'cfg' ? app.buildCfg() : app.buildXml();
         const mime = fileType === 'cfg' ? 'text/plain' : 'application/xml';
-        const name = fileType === 'cfg' ? 'dedicated.cfg' : 'privileges.xml';
+        const name = fileType === 'cfg' ? 'dedicated.cfg' : 'server_file';
         const blob = new Blob([txt], { type: mime }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
     });
 
