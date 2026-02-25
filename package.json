@@ -8,7 +8,7 @@
   "dependencies": {
     "molex-env": "^0.3.2",
     "molex-ftp": "^2.3.1",
-    "molex-xml-js": "^0.3.2",
-    "molex-http": "^0.1.3"
+    "molex-xml-js": "^0.3.3",
+    "molex-http": "^0.1.7"
   }
 }
