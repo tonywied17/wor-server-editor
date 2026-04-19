@@ -1,14 +1,20 @@
 {
-  "name": "server-editor",
-  "version": "0.2.0",
+  "name": "wor-server-editor",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
+    "start:server": "node server.js",
+    "start:client": "npm --prefix client run dev",
+    "dev": "npm run start",
+    "build": "npm --prefix client run build"
   },
   "dependencies": {
-    "molex-env": "^0.3.2",
     "molex-ftp": "^2.3.1",
     "molex-xml-js": "^0.3.3",
-    "molex-http": "^0.1.7"
+    "zero-http": "^0.8.7"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
