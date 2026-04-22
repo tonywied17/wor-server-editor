@@ -124,7 +124,7 @@ export function FtpCard({
     if (connectedNow) setEditing(false);
   }
 
-  // ── Connected read-only state ──
+  // -- Connected read-only state --
   if (connected && !editing) {
     return (
       <aside className="side-card card-shell">
@@ -171,7 +171,7 @@ export function FtpCard({
     );
   }
 
-  // ── Setup / editing state ──
+  // -- Setup / editing state --
   return (
     <aside className="side-card card-shell">
       <div className="side-card__header">

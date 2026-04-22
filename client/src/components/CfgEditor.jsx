@@ -1,6 +1,6 @@
 import { CustomSelect } from './CustomSelect';
 import { CfgQuickSettings } from './CfgQuickSettings';
-import { IconMinus, IconPlus, IconTrash } from './Icons';
+import { IconLock, IconMinus, IconPlus, IconTrash } from './Icons';
 
 const QUICK_MANAGED_KEYS = new Set([
   'online.server.name',
@@ -12,8 +12,20 @@ const QUICK_MANAGED_KEYS = new Set([
   'g_teamsizemaxuserpercentagedifference',
 ]);
 
+const PROTECTED_KEYS = new Set([
+  'sv_bind',
+  'sv_port',
+  'online.server.port',
+  'online.server.steamport',
+  'online.server.steam.accounttoken',
+]);
+
 function shouldHideKey(key) {
   return QUICK_MANAGED_KEYS.has(String(key || '').trim().toLowerCase());
+}
+
+function isProtectedKey(key) {
+  return PROTECTED_KEYS.has(String(key || '').trim().toLowerCase());
 }
 
 export function CfgEditor({
@@ -70,61 +82,82 @@ export function CfgEditor({
       ) : null}
 
       <div className="entry-stack">
-        {visibleEntries.map((item) => item.type === 'group' ? (
-          <article className="group-panel" key={item.id}>
-            <div className="group-panel__header">
-              <input
-                className="group-panel__title"
-                value={item.name}
-                onChange={(event) => onUpdateGroupName(item.id, event.target.value)}
-              />
-              <div className="group-panel__toolbar">
-                <button type="button" className="group-panel__action group-panel__action--danger" onClick={() => onRemoveGroup(item.id)} title="Remove group">
-                  <IconMinus width="15" height="15" />
-                </button>
-              </div>
-            </div>
-            <div className="entry-stack">
-              {item.entries.map((entry) => (
-                <div className={`cfg-row ${entry.duplicate ? 'is-invalid' : ''}`} key={entry.id}>
+        {visibleEntries.map((item) => {
+          if (item.type === 'group') {
+            return (
+              <article className="group-panel" key={item.id}>
+                <div className="group-panel__header">
                   <input
-                    className="field-input field-input--mono"
-                    value={entry.key}
-                    onChange={(event) => onUpdateEntry(entry.id, { key: event.target.value })}
-                    placeholder="key"
+                    className="group-panel__title"
+                    value={item.name}
+                    onChange={(event) => onUpdateGroupName(item.id, event.target.value)}
                   />
-                  <input
-                    className="field-input field-input--mono"
-                    value={entry.value}
-                    onChange={(event) => onUpdateEntry(entry.id, { value: event.target.value })}
-                    placeholder="value"
-                  />
-                  <button type="button" className="row-delete" onClick={() => onRemoveEntry(entry.id)} aria-label="Remove entry">
-                    <IconTrash width="14" height="14" />
-                  </button>
+                  <div className="group-panel__toolbar">
+                    <button type="button" className="group-panel__action group-panel__action--danger" onClick={() => onRemoveGroup(item.id)} title="Remove group">
+                      <IconMinus width="15" height="15" />
+                    </button>
+                  </div>
                 </div>
-              ))}
+                <div className="entry-stack">
+                  {item.entries.map((entry) => {
+                    const locked = isProtectedKey(entry.key);
+                    return (
+                      <div className={`cfg-row ${entry.duplicate ? 'is-invalid' : ''} ${locked ? 'is-locked' : ''}`} key={entry.id}>
+                        <input
+                          className="field-input field-input--mono"
+                          value={entry.key}
+                          readOnly={locked}
+                          onChange={(event) => onUpdateEntry(entry.id, { key: event.target.value })}
+                          placeholder="key"
+                        />
+                        <input
+                          className="field-input field-input--mono"
+                          value={entry.value}
+                          readOnly={locked}
+                          onChange={(event) => onUpdateEntry(entry.id, { value: event.target.value })}
+                          placeholder="value"
+                        />
+                        {locked ? (
+                          <span className="row-lock" title="Server-required key"><IconLock width="14" height="14" /></span>
+                        ) : (
+                          <button type="button" className="row-delete" onClick={() => onRemoveEntry(entry.id)} aria-label="Remove entry">
+                            <IconTrash width="14" height="14" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          }
+          const locked = isProtectedKey(item.key);
+          return (
+            <div className={`cfg-row ${item.duplicate ? 'is-invalid' : ''} ${locked ? 'is-locked' : ''}`} key={item.id}>
+              <input
+                className="field-input field-input--mono"
+                value={item.key}
+                readOnly={locked}
+                onChange={(event) => onUpdateEntry(item.id, { key: event.target.value })}
+                placeholder="key"
+              />
+              <input
+                className="field-input field-input--mono"
+                value={item.value}
+                readOnly={locked}
+                onChange={(event) => onUpdateEntry(item.id, { value: event.target.value })}
+                placeholder="value"
+              />
+              {locked ? (
+                <span className="row-lock" title="Server-required key"><IconLock width="14" height="14" /></span>
+              ) : (
+                <button type="button" className="row-delete" onClick={() => onRemoveEntry(item.id)} aria-label="Remove entry">
+                  <IconTrash width="14" height="14" />
+                </button>
+              )}
             </div>
-          </article>
-        ) : (
-          <div className={`cfg-row ${item.duplicate ? 'is-invalid' : ''}`} key={item.id}>
-            <input
-              className="field-input field-input--mono"
-              value={item.key}
-              onChange={(event) => onUpdateEntry(item.id, { key: event.target.value })}
-              placeholder="key"
-            />
-            <input
-              className="field-input field-input--mono"
-              value={item.value}
-              onChange={(event) => onUpdateEntry(item.id, { value: event.target.value })}
-              placeholder="value"
-            />
-            <button type="button" className="row-delete" onClick={() => onRemoveEntry(item.id)} aria-label="Remove entry">
-              <IconTrash width="14" height="14" />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

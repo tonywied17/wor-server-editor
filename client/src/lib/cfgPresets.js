@@ -96,6 +96,6 @@ export const knownServerKeys = {
   'sv_bind': { label: 'Bind address', description: 'Network address the server binds to.' },
   'sv_port': { label: 'SV port', description: 'CryEngine server port.' },
   'g_drillcampfaction': { label: 'Drill Camp faction', description: '1 = USA, 2 = CSA. Only used with DrillCamp game rules.' },
-  g_teamSizeMaxUserPercentageDifference: { label: 'Team auto-balance', description: 'Enabled writes g_teamSizeMaxUserPercentageDifference=1. Disabled removes the key.' },
+  g_teamSizeMaxUserPercentageDifference: { label: 'Team auto-balance', description: 'Disabled writes g_teamSizeMaxUserPercentageDifference=1. Enabled removes the key.' },
   'Demotion.System.Enabled': { label: 'Demotion system', description: '0 = disabled, 1 = enabled.' },
 };

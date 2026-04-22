@@ -1,7 +1,9 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CfgEditor } from './components/CfgEditor';
 import { ConfirmModal } from './components/ConfirmModal';
+import { CrashDumpsViewer } from './components/CrashDumpsViewer';
 import { FtpCard } from './components/FtpCard';
+import { LogsViewer } from './components/LogsViewer';
 import { PrivilegesEditor } from './components/PrivilegesEditor';
 import { IconChevron, IconDownload, IconFile, IconPlus, IconRefresh, IconUpload, IconX } from './components/Icons';
 import { useConfirm } from './hooks/useConfirm';
@@ -16,14 +18,27 @@ import {
   createBlankPrivilegesDocument,
 } from './lib/types';
 
+const TAB_IDS = {
+  PRIVILEGES: FILE_TYPES.PRIVILEGES,
+  CFG: FILE_TYPES.CFG,
+  LOGS: 'logs',
+  CRASHES: 'crashes',
+};
+
+const TAB_ORDER = [TAB_IDS.PRIVILEGES, TAB_IDS.CFG, TAB_IDS.LOGS, TAB_IDS.CRASHES];
+
+const EDITOR_TABS = new Set([TAB_IDS.PRIVILEGES, TAB_IDS.CFG]);
+
 const fileLabels = {
   [FILE_TYPES.PRIVILEGES]: 'privileges.xml',
   [FILE_TYPES.CFG]: 'dedicated.cfg',
 };
 
 const tabLabels = {
-  [FILE_TYPES.PRIVILEGES]: 'Admin roster',
-  [FILE_TYPES.CFG]: 'Configuration',
+  [TAB_IDS.PRIVILEGES]: 'Admin roster',
+  [TAB_IDS.CFG]: 'Configuration',
+  [TAB_IDS.LOGS]: 'Logs',
+  [TAB_IDS.CRASHES]: 'Crash Dumps',
 };
 
 const blankSnapshots = {
@@ -120,10 +135,14 @@ export default function App() {
   const [visibleStatus, setVisibleStatus] = useState(null); // { tone, text, leaving }
   const [uploadConfirm, setUploadConfirm] = useState(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState(() => state.activeFileType);
   const latestStateRef = useRef(state);
   const validationTimersRef = useRef(new Map());
   const validationTokensRef = useRef(new Map());
   const ftpPreloadDoneRef = useRef(false);
+  const fileInputRef = useRef(null);
+  const dragCounterRef = useRef(0);
+  const [draggingOver, setDraggingOver] = useState(false);
 
   useEffect(() => {
     latestStateRef.current = state;
@@ -305,6 +324,13 @@ export default function App() {
 
     const document = parseDocument(text, targetFileType);
     const snapshot = serializeDocument(document);
+
+    // When opening a local file on top of an FTP-loaded document,
+    // keep the FTP snapshot so dirty detection works against the server version.
+    const existingDocState = state.documents[targetFileType];
+    const wasFromFtp = existingDocState?.source?.kind === 'ftp';
+    const keepFtpBaseline = sourceKind === 'file' && wasFromFtp;
+
     startTransition(() => {
       dispatch({
         type: 'LOAD_DOCUMENT',
@@ -312,9 +338,9 @@ export default function App() {
         setActive,
         rawInput: text,
         document,
-        snapshot,
-        source: { kind: sourceKind, remotePath },
-        saveState: { savedAt: new Date().toISOString(), channel: sourceKind === 'ftp' ? 'ftp-load' : sourceKind },
+        snapshot: keepFtpBaseline ? existingDocState.snapshot : snapshot,
+        source: keepFtpBaseline ? existingDocState.source : { kind: sourceKind, remotePath },
+        saveState: keepFtpBaseline ? existingDocState.saveState : { savedAt: new Date().toISOString(), channel: sourceKind === 'ftp' ? 'ftp-load' : sourceKind },
       });
     });
 
@@ -467,6 +493,45 @@ export default function App() {
       });
     });
     notify(`Started a blank ${fileLabels[ft]} draft.`, 'success');
+  }
+
+  function handleImportFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result;
+      loadTextIntoDocument(text, state.activeFileType, 'file');
+    };
+    reader.onerror = () => notify('Failed to read file.', 'error');
+    reader.readAsText(file);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleDragEnter(e) {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) setDraggingOver(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDraggingOver(false);
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleImportFile(file);
   }
 
   async function handleTestFtp() {
@@ -737,7 +802,28 @@ export default function App() {
     : 'banner--neutral';
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".cfg,.xml,.txt"
+        className="sr-only"
+        onChange={(e) => { handleImportFile(e.target.files?.[0]); e.target.value = ''; }}
+      />
+      {draggingOver && (
+        <div className="drop-overlay">
+          <div className="drop-overlay__inner">
+            <IconUpload width="32" height="32" />
+            <p>Drop file to load</p>
+          </div>
+        </div>
+      )}
       <header className="hero-bar">
         <div className="hero-bar__brand">
           <span className="hero-bar__mark">W</span>
@@ -751,68 +837,80 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tab-switcher">
-          {Object.values(FILE_TYPES).map((fileType) => (
+          {TAB_ORDER.map((tabId) => (
             <button
-              key={fileType}
+              key={tabId}
               type="button"
-              className={`tab-switcher__button ${state.activeFileType === fileType ? 'is-active' : ''}`}
+              className={`tab-switcher__button ${activeTab === tabId ? 'is-active' : ''}`}
               onClick={() => {
-                dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType });
-                const docState = latestStateRef.current.documents[fileType];
-                if (docState.source.kind === 'blank' && state.ftp.host && state.ftp.username && state.ftp.password) {
-                  handleLoadFromFtp(fileType, true);
+                setActiveTab(tabId);
+                if (EDITOR_TABS.has(tabId)) {
+                  dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: tabId });
+                  const docState = latestStateRef.current.documents[tabId];
+                  if (docState.source.kind === 'blank' && ftpSessionConnected) {
+                    handleLoadFromFtp(tabId, true);
+                  }
                 }
               }}
             >
-              {tabLabels[fileType]}
+              {tabLabels[tabId]}
             </button>
           ))}
         </div>
 
         <div className="toolbar__actions">
-          {isDirty && <span className="toolbar__dirty-badge">Unsaved changes</span>}
-          {currentInvalidCount > 0 && <span className="toolbar__badge toolbar__badge--danger">{currentInvalidCount} invalid</span>}
-          {currentDuplicateCount > 0 && <span className="toolbar__badge toolbar__badge--warn">{currentDuplicateCount} duplicate{currentDuplicateCount > 1 ? 's' : ''}</span>}
+          {EDITOR_TABS.has(activeTab) && isDirty && <span className="toolbar__dirty-badge">Unsaved changes</span>}
+          {EDITOR_TABS.has(activeTab) && currentInvalidCount > 0 && <span className="toolbar__badge toolbar__badge--danger">{currentInvalidCount} invalid</span>}
+          {EDITOR_TABS.has(activeTab) && currentDuplicateCount > 0 && <span className="toolbar__badge toolbar__badge--warn">{currentDuplicateCount} duplicate{currentDuplicateCount > 1 ? 's' : ''}</span>}
 
-          <DropdownMenu trigger={({ open, toggle }) => (
-            <button
-              type="button"
-              className="toolbar-menu__trigger toolbar-menu__trigger--primary"
-              onClick={toggle}
-              aria-haspopup="true"
-              aria-expanded={open}
-            >
-              <IconUpload /> Server
-              <IconChevron className="toolbar-menu__caret" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
-            </button>
-          )}>
-            <button type="button" className="toolbar-menu__item" onClick={handleUploadToFtp} disabled={busy || !canSync || !isDirty}>
-              <IconUpload /> Publish changes
-            </button>
-            <button type="button" className="toolbar-menu__item" onClick={() => handleLoadFromFtp()} disabled={!canSync}>
-              <IconRefresh /> Sync from server
-            </button>
-          </DropdownMenu>
+          {EDITOR_TABS.has(activeTab) && (
+            <DropdownMenu trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                className="toolbar-menu__trigger toolbar-menu__trigger--primary"
+                onClick={toggle}
+                aria-haspopup="true"
+                aria-expanded={open}
+              >
+                <IconUpload /> Server
+                <IconChevron className="toolbar-menu__caret" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
+              </button>
+            )}>
+              <button type="button" className="toolbar-menu__item" onClick={handleUploadToFtp} disabled={busy || !canSync || !isDirty}>
+                <IconUpload /> Publish changes
+              </button>
+              <button type="button" className="toolbar-menu__item" onClick={() => handleLoadFromFtp()} disabled={!canSync}>
+                <IconRefresh /> Sync from server
+              </button>
+            </DropdownMenu>
+          )}
 
-          <DropdownMenu trigger={({ open, toggle }) => (
-            <button
-              type="button"
-              className="toolbar-menu__trigger toolbar-menu__trigger--ghost"
-              onClick={toggle}
-              aria-haspopup="true"
-              aria-expanded={open}
-            >
-              <IconFile /> File
-              <IconChevron className="toolbar-menu__caret" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
-            </button>
-          )}>
-            <button type="button" className="toolbar-menu__item" onClick={handleNewBlank}>
-              <IconPlus /> New document
-            </button>
-            <button type="button" className="toolbar-menu__item" disabled={!canExport} onClick={handleDownloadExport}>
-              <IconDownload /> Save to computer
-            </button>
-          </DropdownMenu>
+          {EDITOR_TABS.has(activeTab) && (
+            <DropdownMenu trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                className="toolbar-menu__trigger toolbar-menu__trigger--ghost"
+                onClick={toggle}
+                aria-haspopup="true"
+                aria-expanded={open}
+              >
+                <IconFile /> File
+                <IconChevron className="toolbar-menu__caret" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
+              </button>
+            )}>
+              {state.activeFileType !== FILE_TYPES.CFG && (
+                <button type="button" className="toolbar-menu__item" onClick={handleNewBlank}>
+                  <IconPlus /> New document
+                </button>
+              )}
+              <button type="button" className="toolbar-menu__item" onClick={() => fileInputRef.current?.click()}>
+                <IconFile /> Open from computer
+              </button>
+              <button type="button" className="toolbar-menu__item" disabled={!canExport} onClick={handleDownloadExport}>
+                <IconDownload /> Save to computer
+              </button>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -840,7 +938,34 @@ export default function App() {
 
       <main className="workspace-grid">
         <div className="workspace-main">
-          {connectLoadState.active ? (
+          {activeTab === TAB_IDS.LOGS ? (
+            <LogsViewer
+              ftp={state.ftp}
+              ftpReady={ftpConnected && canSync}
+              onRequestConnect={async () => {
+                if (!canSync) {
+                  notify('Fill in your FTP credentials first (host, user, password).', 'neutral');
+                  return;
+                }
+                await handleConnectAndLoadAll();
+              }}
+              confirm={confirm}
+              notify={notify}
+            />
+          ) : activeTab === TAB_IDS.CRASHES ? (
+            <CrashDumpsViewer
+              ftp={state.ftp}
+              ftpReady={ftpConnected && canSync}
+              onRequestConnect={async () => {
+                if (!canSync) {
+                  notify('Fill in your FTP credentials first (host, user, password).', 'neutral');
+                  return;
+                }
+                await handleConnectAndLoadAll();
+              }}
+              notify={notify}
+            />
+          ) : connectLoadState.active ? (
             <div className="card-shell sync-loader" role="status" aria-live="polite">
               <div className="sync-loader__ring" />
               <p className="eyebrow">Server sync</p>
@@ -852,17 +977,22 @@ export default function App() {
             <div className="card-shell empty-state">
               <div className="empty-state__inner">
                 <h2 className="empty-state__title">No data loaded</h2>
-                <p className="empty-state__copy">Connect to FTP and download your server files, or start with a blank document.</p>
+                <p className="empty-state__copy">Connect to FTP and download your server files, or drag &amp; drop a file here.</p>
                 <div className="button-row">
-                  <button type="button" className="button button--primary" onClick={handleNewBlank}>
-                    <IconPlus /> Start blank {fileLabels[state.activeFileType]}
+                  {state.activeFileType !== FILE_TYPES.CFG && (
+                    <button type="button" className="button button--primary" onClick={handleNewBlank}>
+                      <IconPlus /> Start blank {fileLabels[state.activeFileType]}
+                    </button>
+                  )}
+                  <button type="button" className={`button ${state.activeFileType === FILE_TYPES.CFG ? 'button--primary' : 'button--ghost'}`} onClick={() => fileInputRef.current?.click()}>
+                    <IconFile /> Open from computer
                   </button>
                 </div>
               </div>
             </div>
           ) : null}
 
-          {!isBlank && state.activeFileType === FILE_TYPES.PRIVILEGES ? (
+          {EDITOR_TABS.has(activeTab) && !isBlank && state.activeFileType === FILE_TYPES.PRIVILEGES ? (
             <PrivilegesEditor
               groups={currentDocument.groups}
               onAddGroup={() => dispatch({ type: 'ADD_GROUP', fileType: FILE_TYPES.PRIVILEGES })}
@@ -874,7 +1004,7 @@ export default function App() {
             />
           ) : null}
 
-          {!isBlank && state.activeFileType === FILE_TYPES.CFG ? (
+          {EDITOR_TABS.has(activeTab) && !isBlank && state.activeFileType === FILE_TYPES.CFG ? (
             <CfgEditor
               entries={currentDocument.cfgEntries}
               presets={cfgPresets}

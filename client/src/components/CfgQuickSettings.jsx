@@ -42,7 +42,7 @@ export function CfgQuickSettings({ entries, onSetValues }) {
   const maxSlots = getCfgValue(entries, 'Online.Server.Capacity');
   const serverPassword = getCfgValue(entries, 'Online.Server.Password');
   const demotionEnabled = getCfgValue(entries, 'Demotion.System.Enabled') !== '0';
-  const teamAutoBalanceEnabled = getCfgValue(entries, 'g_teamSizeMaxUserPercentageDifference') === '1';
+  const teamAutoBalanceDisabled = getCfgValue(entries, 'g_teamSizeMaxUserPercentageDifference') === '1';
   const currentPresetId = useMemo(() => detectCurrentPreset(entries), [entries]);
 
   const presetOptions = useMemo(() => {
@@ -154,10 +154,10 @@ export function CfgQuickSettings({ entries, onSetValues }) {
         <QuickField label={knownServerKeys.g_teamSizeMaxUserPercentageDifference.label} description={knownServerKeys.g_teamSizeMaxUserPercentageDifference.description}>
           <button
             type="button"
-            className={`quick-switch ${teamAutoBalanceEnabled ? 'is-on' : ''}`}
-            aria-pressed={teamAutoBalanceEnabled}
+            className={`quick-switch ${teamAutoBalanceDisabled ? '' : 'is-on'}`}
+            aria-pressed={!teamAutoBalanceDisabled}
             onClick={() => {
-              if (teamAutoBalanceEnabled) {
+              if (teamAutoBalanceDisabled) {
                 onSetValues({}, ['g_teamSizeMaxUserPercentageDifference']);
               } else {
                 onSetValues({ g_teamSizeMaxUserPercentageDifference: '1' }, []);
@@ -167,7 +167,7 @@ export function CfgQuickSettings({ entries, onSetValues }) {
             <span className="quick-switch__track">
               <span className="quick-switch__knob" />
             </span>
-            <span className="quick-switch__label">{teamAutoBalanceEnabled ? 'Enabled' : 'Disabled'}</span>
+            <span className="quick-switch__label">{teamAutoBalanceDisabled ? 'Disabled' : 'Enabled'}</span>
           </button>
         </QuickField>
 
