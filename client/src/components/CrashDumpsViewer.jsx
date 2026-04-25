@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ftpDownload, ftpDownloadBinary, ftpListCrashes, ftpListLogs } from '../lib/api';
 import { formatBytes, formatRelativeTime } from '../lib/logParser';
+import { buildFtpEndpointKey, crashViewCache } from '../lib/viewCache';
 import { IconDownload, IconFile, IconRefresh, IconX } from './Icons';
 import { FtpAuthPrompt } from './LogsViewer';
 
@@ -24,12 +25,22 @@ function triggerDownload(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
-  const [entries, setEntries] = useState([]);
+export function CrashDumpsViewer({
+  ftp,
+  ftpReady,
+  onRequestConnect,
+  notify,
+  refreshToken = 0,
+  onRefreshed,
+  shortcutCommand,
+}) {
+  const endpointKey = buildFtpEndpointKey(ftp);
+  const canUseCache = crashViewCache.endpointKey === endpointKey;
+  const [entries, setEntries] = useState(() => (canUseCache ? crashViewCache.entries : []));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busyPath, setBusyPath] = useState(null);
-  const [selection, setSelection] = useState(() => new Set());
+  const [selection, setSelection] = useState(() => new Set(canUseCache ? crashViewCache.selectionPaths : []));
   const [showReportModal, setShowReportModal] = useState(false);
 
   const ftpPayload = useMemo(() => ({
@@ -39,8 +50,13 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
     password: ftp.password,
   }), [ftp.host, ftp.port, ftp.username, ftp.password]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options = {}) => {
+    const { repopulate = false } = options;
     if (!ftpReady) return;
+    if (repopulate) {
+      setEntries([]);
+      setSelection(new Set());
+    }
     setLoading(true);
     setError('');
     try {
@@ -70,17 +86,42 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
         const bT = b.modifiedAt ? Date.parse(b.modifiedAt) : 0;
         return bT - aT;
       });
+      const fetchedAt = new Date().toISOString();
       setEntries(merged);
+      setSelection((prev) => {
+        const validPaths = new Set(merged.map((entry) => entry.path));
+        return new Set([...prev].filter((path) => validPaths.has(path)));
+      });
+      crashViewCache.fetchedAt = fetchedAt;
+      onRefreshed?.({ fetchedAt, count: merged.length });
     } catch (err) {
       setError(err.message || 'Failed to scan crash dumps.');
     } finally {
       setLoading(false);
     }
-  }, [ftpPayload, ftpReady]);
+  }, [ftpPayload, ftpReady, onRefreshed]);
 
   useEffect(() => {
-    if (ftpReady) refresh();
-  }, [ftpReady, refresh]);
+    if (!ftpReady) return;
+    if (entries.length > 0) return;
+    refresh({ repopulate: false });
+  }, [ftpReady, entries.length, refresh]);
+
+  useEffect(() => {
+    if (!ftpReady) return;
+    if (!refreshToken) return;
+    refresh({ repopulate: true });
+  }, [refreshToken]);
+
+  useEffect(() => {
+    if (shortcutCommand === 'rescan') refresh({ repopulate: true });
+  }, [shortcutCommand]);
+
+  useEffect(() => {
+    crashViewCache.endpointKey = endpointKey;
+    crashViewCache.entries = entries;
+    crashViewCache.selectionPaths = [...selection];
+  }, [endpointKey, entries, selection]);
 
   async function handleDownloadOne(entry) {
     if (!entry || (entry.size || 0) <= 0) {
@@ -135,20 +176,6 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
     });
   }
 
-  if (!ftpReady) {
-    return (
-      <FtpAuthPrompt
-        title="Connect to export crash dumps"
-        description="Crash dumps are stored on the server under /Diagnostics. Connect via FTP to list, download, and report them."
-        onConnect={onRequestConnect}
-      />
-    );
-  }
-
-  const allSelected = entries.length > 0 && selection.size === entries.length;
-  const selectedCount = selection.size;
-  const totalSize = entries.reduce((sum, entry) => sum + (entry.size || 0), 0);
-
   // For the "Report to WoR" flow we only need the single most recent dump and
   // the single most recent log. Entries arrive pre-sorted newest-first from the
   // backend, but re-sort defensively in case the user has triggered a rescan.
@@ -166,6 +193,32 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
     [entries],
   );
   const reportTargets = [latestDump, latestLog].filter(Boolean);
+  const featuredEntries = useMemo(() => {
+    const byPath = new Map();
+    if (latestDump) byPath.set(latestDump.path, latestDump);
+    if (latestLog) byPath.set(latestLog.path, latestLog);
+    return [...byPath.values()].sort((a, b) => Date.parse(b.modifiedAt || 0) - Date.parse(a.modifiedAt || 0));
+  }, [latestDump, latestLog]);
+  const featuredPaths = useMemo(() => new Set(featuredEntries.map((entry) => entry.path)), [featuredEntries]);
+  const remainingEntries = useMemo(
+    () => entries.filter((entry) => !featuredPaths.has(entry.path)),
+    [entries, featuredPaths],
+  );
+
+  if (!ftpReady) {
+    return (
+      <FtpAuthPrompt
+        title="Connect to export crash dumps"
+        description="Crash dumps are stored on the server under /Diagnostics. Connect via FTP to list, download, and report them."
+        icon="crashes"
+        onConnect={onRequestConnect}
+      />
+    );
+  }
+
+  const allSelected = entries.length > 0 && selection.size === entries.length;
+  const selectedCount = selection.size;
+  const totalSize = entries.reduce((sum, entry) => sum + (entry.size || 0), 0);
 
   return (
     <section className="workspace-card card-shell crash-view">
@@ -175,7 +228,7 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
           <h2>Crash dumps &amp; diagnostic logs</h2>
         </div>
         <div className="button-row button-row--compact panel-header__actions">
-          <button type="button" className="icon-btn panel-header__action-btn" onClick={refresh} disabled={loading}>
+          <button type="button" className="icon-btn panel-header__action-btn" onClick={() => refresh({ repopulate: true })} disabled={loading}>
             <IconRefresh className={loading ? 'spin' : ''} />
             <span>Rescan</span>
           </button>
@@ -232,51 +285,110 @@ export function CrashDumpsViewer({ ftp, ftpReady, onRequestConnect, notify }) {
         </div>
       )}
 
-      {entries.length > 0 && (
-        <ul className="crash-list">
-          {entries.map((entry) => {
-            const isDump = /\.dmp$/i.test(entry.name);
-            const isSelected = selection.has(entry.path);
-            const isBusy = busyPath === entry.path;
-            return (
-              <li key={entry.path} className={`crash-list__row ${isSelected ? 'is-selected' : ''}`}>
-                <label className="checkbox crash-list__check">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelect(entry.path)}
-                  />
-                </label>
-                <div className="crash-list__info">
-                  <div className="crash-list__name-row">
-                    <span className={`crash-list__tag ${isDump ? 'crash-list__tag--dump' : 'crash-list__tag--log'}`}>
-                      {isDump ? 'DMP' : 'LOG'}
-                    </span>
-                    <span className="crash-list__name" title={entry.path}>{entry.name}</span>
+      {featuredEntries.length > 0 && (
+        <div className="crash-list-section">
+          <div className="crash-list-section__header">
+            <span className="crash-list-section__title">Latest files</span>
+            <span className="crash-list-section__meta">Used by Report to WoR</span>
+          </div>
+          <ul className="crash-list crash-list--featured">
+            {featuredEntries.map((entry) => {
+              const isDump = /\.dmp$/i.test(entry.name);
+              const isSelected = selection.has(entry.path);
+              const isBusy = busyPath === entry.path;
+              return (
+                <li key={entry.path} className={`crash-list__row crash-list__row--featured ${isSelected ? 'is-selected' : ''}`}>
+                  <label className="checkbox crash-list__check">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(entry.path)}
+                    />
+                  </label>
+                  <div className="crash-list__info">
+                    <div className="crash-list__name-row">
+                      <span className={`crash-list__tag ${isDump ? 'crash-list__tag--dump' : 'crash-list__tag--log'}`}>
+                        {isDump ? 'DMP' : 'LOG'}
+                      </span>
+                      <span className="crash-list__name" title={entry.path}>{entry.name}</span>
+                    </div>
+                    <div className="crash-list__meta">
+                      <span title={entry.path}>{entry.path}</span>
+                      <span className="log-entry__dot">•</span>
+                      <span>{formatBytes(entry.size)}</span>
+                      <span className="log-entry__dot">•</span>
+                      <span>{entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : '—'}</span>
+                      <span className="crash-list__rel">({formatRelativeTime(entry.modifiedAt)})</span>
+                    </div>
                   </div>
-                  <div className="crash-list__meta">
-                    <span title={entry.path}>{entry.path}</span>
-                    <span className="log-entry__dot">•</span>
-                    <span>{formatBytes(entry.size)}</span>
-                    <span className="log-entry__dot">•</span>
-                    <span>{entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : '—'}</span>
-                    <span className="crash-list__rel">({formatRelativeTime(entry.modifiedAt)})</span>
+                  <div className="crash-list__actions">
+                    <button
+                      type="button"
+                      className="button button--sm button--ghost"
+                      onClick={() => handleDownloadOne(entry)}
+                      disabled={isBusy}
+                    >
+                      <IconDownload /> {isBusy ? 'Downloading…' : 'Download'}
+                    </button>
                   </div>
-                </div>
-                <div className="crash-list__actions">
-                  <button
-                    type="button"
-                    className="button button--sm button--ghost"
-                    onClick={() => handleDownloadOne(entry)}
-                    disabled={isBusy}
-                  >
-                    <IconDownload /> {isBusy ? 'Downloading…' : 'Download'}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {remainingEntries.length > 0 && (
+        <div className="crash-list-section">
+          <div className="crash-list-section__header">
+            <span className="crash-list-section__title">All files</span>
+            <span className="crash-list-section__meta">Older diagnostics and logs</span>
+          </div>
+          <ul className="crash-list">
+            {remainingEntries.map((entry) => {
+              const isDump = /\.dmp$/i.test(entry.name);
+              const isSelected = selection.has(entry.path);
+              const isBusy = busyPath === entry.path;
+              return (
+                <li key={entry.path} className={`crash-list__row ${isSelected ? 'is-selected' : ''}`}>
+                  <label className="checkbox crash-list__check">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(entry.path)}
+                    />
+                  </label>
+                  <div className="crash-list__info">
+                    <div className="crash-list__name-row">
+                      <span className={`crash-list__tag ${isDump ? 'crash-list__tag--dump' : 'crash-list__tag--log'}`}>
+                        {isDump ? 'DMP' : 'LOG'}
+                      </span>
+                      <span className="crash-list__name" title={entry.path}>{entry.name}</span>
+                    </div>
+                    <div className="crash-list__meta">
+                      <span title={entry.path}>{entry.path}</span>
+                      <span className="log-entry__dot">•</span>
+                      <span>{formatBytes(entry.size)}</span>
+                      <span className="log-entry__dot">•</span>
+                      <span>{entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : '—'}</span>
+                      <span className="crash-list__rel">({formatRelativeTime(entry.modifiedAt)})</span>
+                    </div>
+                  </div>
+                  <div className="crash-list__actions">
+                    <button
+                      type="button"
+                      className="button button--sm button--ghost"
+                      onClick={() => handleDownloadOne(entry)}
+                      disabled={isBusy}
+                    >
+                      <IconDownload /> {isBusy ? 'Downloading…' : 'Download'}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       {showReportModal && (

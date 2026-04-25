@@ -37,7 +37,9 @@ export function FtpCard({
   const [expanded, setExpanded] = useState(false);
   const canConnect = ftp.host && ftp.username && ftp.password;
   const connectLabel = connectLoading
-    ? `Loading ${connectProgress}/${connectTotal || 0}`
+    ? (connectTotal > 0 && connectProgress >= connectTotal
+      ? 'Finalizing connection…'
+      : `Loading ${connectProgress}/${connectTotal || 0}`)
     : 'Connect & Load';
   const saveLabel = saveState?.savedAt
     ? `${saveState.channel === 'ftp' ? 'Synced' : 'Loaded'} ${new Date(saveState.savedAt).toLocaleString()}`

@@ -10,10 +10,10 @@ import {
   LOG_LEVELS,
   parseLog,
 } from '../lib/logParser';
-import { IconChevron, IconDownload, IconFile, IconRefresh, IconTrash, IconX } from './Icons';
+import { buildFtpEndpointKey, LOGS_MAX_AUTO_OPEN_BYTES, logsViewCache } from '../lib/viewCache';
+import { IconChevron, IconCrash, IconDownload, IconFile, IconLogs, IconRefresh, IconTrash, IconX } from './Icons';
 
 const DEFAULT_LIMIT = 10;
-const MAX_AUTO_OPEN_BYTES = 25 * 1024 * 1024;
 const INITIAL_PAGE_SIZE = 500;
 const PAGE_STEP = 1000;
 
@@ -41,22 +41,37 @@ export function LogsViewer({
   onRequestConnect,
   confirm,
   notify,
+  refreshToken = 0,
+  onRefreshed,
+  shortcutCommand,
 }) {
-  const [entries, setEntries] = useState([]);
+  const endpointKey = buildFtpEndpointKey(ftp);
+  const canUseCache = logsViewCache.endpointKey === endpointKey;
+  const cachedEntries = canUseCache ? logsViewCache.entries : [];
+
+  const [entries, setEntries] = useState(() => cachedEntries);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
-  const [selected, setSelected] = useState(null);
-  const [logText, setLogText] = useState('');
+  const [selected, setSelected] = useState(() => {
+    if (!cachedEntries.length) return null;
+    return cachedEntries.find((entry) => entry.path === logsViewCache.selectedPath) || cachedEntries[0] || null;
+  });
+  const [logText, setLogText] = useState(() => (
+    canUseCache && logsViewCache.logPath === logsViewCache.selectedPath
+      ? logsViewCache.logText
+      : ''
+  ));
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState('');
-  const [search, setSearch] = useState('');
-  const [levelFilter, setLevelFilter] = useState(() => new Set());
-  const [categoryFilter, setCategoryFilter] = useState(() => new Set());
+  const [search, setSearch] = useState(() => (canUseCache ? logsViewCache.search : ''));
+  const [levelFilter, setLevelFilter] = useState(() => new Set(canUseCache ? logsViewCache.levelFilter : []));
+  const [categoryFilter, setCategoryFilter] = useState(() => new Set(canUseCache ? logsViewCache.categoryFilter : []));
   const [busyPath, setBusyPath] = useState(null);
-  const [yearFilter, setYearFilter] = useState('recent');
-  const [pageSize, setPageSize] = useState(INITIAL_PAGE_SIZE);
-  const [totalMatched, setTotalMatched] = useState(0);
+  const [yearFilter, setYearFilter] = useState(() => (canUseCache ? logsViewCache.yearFilter : 'recent'));
+  const [pageSize, setPageSize] = useState(() => (canUseCache ? logsViewCache.pageSize : INITIAL_PAGE_SIZE));
+  const [totalMatched, setTotalMatched] = useState(() => (canUseCache ? logsViewCache.totalMatched : 0));
   const fetchTokenRef = useRef(0);
+  const loadedLogPathRef = useRef(canUseCache ? logsViewCache.logPath : null);
 
   const ftpPayload = useMemo(() => ({
     host: ftp.host?.trim(),
@@ -65,8 +80,16 @@ export function LogsViewer({
     password: ftp.password,
   }), [ftp.host, ftp.port, ftp.username, ftp.password]);
 
-  const refreshList = useCallback(async (mode = yearFilter) => {
+  const refreshList = useCallback(async (mode = 'recent', options = {}) => {
+    const { repopulate = false } = options;
     if (!ftpReady) return;
+    if (repopulate) {
+      setEntries([]);
+      setSelected(null);
+      setLogText('');
+      setLogError('');
+      loadedLogPathRef.current = null;
+    }
     setListLoading(true);
     setListError('');
     try {
@@ -75,6 +98,7 @@ export function LogsViewer({
       const body = mode === 'recent' ? { ...ftpPayload, limit: DEFAULT_LIMIT } : ftpPayload;
       const result = await ftpListLogs(body);
       const items = result.entries || [];
+      const fetchedAt = new Date().toISOString();
       setEntries(items);
       setTotalMatched(Number(result.totalMatched) || items.length);
       setSelected((prev) => {
@@ -83,16 +107,45 @@ export function LogsViewer({
         }
         return items[0] || null;
       });
+      logsViewCache.fetchedAt = fetchedAt;
+      onRefreshed?.({ fetchedAt, count: items.length });
     } catch (err) {
       setListError(err.message || 'Failed to load log listing.');
     } finally {
       setListLoading(false);
     }
-  }, [ftpPayload, ftpReady, yearFilter]);
+  }, [ftpPayload, ftpReady, onRefreshed]);
 
   useEffect(() => {
-    if (ftpReady) refreshList();
-  }, [ftpReady, refreshList]);
+    if (!ftpReady) return;
+    if (entries.length > 0) return;
+    refreshList('recent');
+  }, [ftpReady, entries.length, refreshList]);
+
+  useEffect(() => {
+    if (!ftpReady) return;
+    if (!refreshToken) return;
+    refreshList(yearFilter, { repopulate: true });
+  }, [refreshToken]);
+
+  useEffect(() => {
+    if (!shortcutCommand) return;
+    if (shortcutCommand === 'focus-search') {
+      const input = document.querySelector('.logs-view__search input[type="search"]');
+      if (input) input.focus();
+      return;
+    }
+    if (shortcutCommand === 'load-more') {
+      if (hasMore) setPageSize((n) => n + PAGE_STEP);
+      return;
+    }
+    if (shortcutCommand === 'reparse') {
+      setSearch('');
+      setLevelFilter(new Set());
+      setCategoryFilter(new Set());
+      setPageSize(INITIAL_PAGE_SIZE);
+    }
+  }, [shortcutCommand]);
 
   useEffect(() => {
     if (!selected) {
@@ -100,9 +153,15 @@ export function LogsViewer({
       setLogError('');
       return;
     }
-    if (selected.size > MAX_AUTO_OPEN_BYTES) {
+    if (selected.size > LOGS_MAX_AUTO_OPEN_BYTES) {
       setLogText('');
       setLogError(`This log is ${formatBytes(selected.size)} — too large to preview in the browser. Use “Download” to save it to your computer.`);
+      loadedLogPathRef.current = null;
+      return;
+    }
+
+    if (loadedLogPathRef.current === selected.path && logText) {
+      setLogError('');
       return;
     }
 
@@ -114,17 +173,34 @@ export function LogsViewer({
     ftpDownload({ ...ftpPayload, remotePath: selected.path })
       .then((result) => {
         if (fetchTokenRef.current !== token) return;
-        setLogText(result.content || '');
+        const content = result.content || '';
+        setLogText(content);
+        loadedLogPathRef.current = selected.path;
       })
       .catch((err) => {
         if (fetchTokenRef.current !== token) return;
         setLogError(err.message || 'Failed to download log file.');
+        loadedLogPathRef.current = null;
       })
       .finally(() => {
         if (fetchTokenRef.current !== token) return;
         setLogLoading(false);
       });
-  }, [selected, ftpPayload]);
+  }, [selected, ftpPayload, logText]);
+
+  useEffect(() => {
+    logsViewCache.endpointKey = endpointKey;
+    logsViewCache.entries = entries;
+    logsViewCache.totalMatched = totalMatched;
+    logsViewCache.selectedPath = selected?.path || null;
+    logsViewCache.logText = logText;
+    logsViewCache.logPath = loadedLogPathRef.current;
+    logsViewCache.search = search;
+    logsViewCache.levelFilter = [...levelFilter];
+    logsViewCache.categoryFilter = [...categoryFilter];
+    logsViewCache.yearFilter = yearFilter;
+    logsViewCache.pageSize = pageSize;
+  }, [endpointKey, entries, totalMatched, selected, logText, search, levelFilter, categoryFilter, yearFilter, pageSize]);
 
   const years = useMemo(() => {
     const set = new Set();
@@ -227,6 +303,7 @@ export function LogsViewer({
       <FtpAuthPrompt
         title="Connect to view server logs"
         description="Server logs live on your FTP host. Connect with your G-Portal FTP credentials to browse, search, and manage them."
+        icon="logs"
         onConnect={onRequestConnect}
       />
     );
@@ -249,7 +326,7 @@ export function LogsViewer({
           <button
             type="button"
             className="icon-btn panel-header__action-btn"
-            onClick={refreshList}
+            onClick={() => refreshList(yearFilter, { repopulate: true })}
             disabled={listLoading}
           >
             <IconRefresh className={listLoading ? 'spin' : ''} />
@@ -324,7 +401,9 @@ export function LogsViewer({
         </aside>
 
         <div className="logs-view__main">
-          {!selected ? (
+          {listLoading && !entries.length ? (
+            <div className="logs-view__placeholder"><div className="sync-loader__ring" /><p>Refreshing logs…</p></div>
+          ) : !selected ? (
             <div className="logs-view__placeholder">
               <IconFile width="28" height="28" />
               <p>Select a log file to view.</p>
@@ -566,11 +645,12 @@ function LogYearSelect({ value, years, totalCount, onChange }) {
   );
 }
 
-export function FtpAuthPrompt({ title, description, onConnect }) {
+export function FtpAuthPrompt({ title, description, icon = 'logs', onConnect }) {
+  const Icon = icon === 'crashes' ? IconCrash : IconLogs;
   return (
     <div className="card-shell ftp-gate">
-      <div className="ftp-gate__icon" aria-hidden>
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a10 10 0 1 0 10 10" /><path d="M12 6v6l4 2" /></svg>
+      <div className={`ftp-gate__icon ftp-gate__icon--${icon}`} aria-hidden>
+        <Icon width="32" height="32" />
       </div>
       <h2 className="ftp-gate__title">{title}</h2>
       <p className="ftp-gate__copy">{description}</p>

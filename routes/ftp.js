@@ -355,11 +355,6 @@ router.post('/download-binary', async (req, res) => {
   const client = createClient('DownloadBinary', host);
   try {
     await client.connect({ host, port: port || 21, user: username, password, timeout: 20000 });
-
-    // Use downloadStream so we can assemble the buffer from chunks ourselves —
-    // molex-ftp's bare download() has been observed to resolve with 0 bytes on
-    // some pure-ftpd installs when the control-channel 226 races the data-socket
-    // close. Streaming sidesteps that.
     const { Writable } = require('stream');
     const chunks = [];
     const sink = new Writable({

@@ -57,16 +57,8 @@ function readStoredProfile() {
 }
 
 function buildInitialState() {
-  let activeFileType = FILE_TYPES.PRIVILEGES;
-  try {
-    const stored = localStorage.getItem(ACTIVE_FILE_TYPE_KEY);
-    if (stored === FILE_TYPES.CFG || stored === FILE_TYPES.PRIVILEGES) activeFileType = stored;
-  } catch {
-    activeFileType = FILE_TYPES.PRIVILEGES;
-  }
-
   return {
-    activeFileType,
+    activeFileType: FILE_TYPES.PRIVILEGES,
     ftp: readStoredProfile(),
     documents: {
       [FILE_TYPES.PRIVILEGES]: createDocumentState(FILE_TYPES.PRIVILEGES),

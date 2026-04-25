@@ -354,6 +354,9 @@ a {
 }
 
 .tab-switcher__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -371,6 +374,18 @@ a {
 .tab-switcher__button:hover {
   color: var(--text);
   transform: translateY(-1px);
+}
+
+.tab-switcher__button svg {
+  opacity: 0.85;
+}
+
+.tab-switcher__button.is-active svg {
+  opacity: 1;
+}
+
+.tab-switcher__label {
+  line-height: 1;
 }
 
 .step-rail {
@@ -630,6 +645,12 @@ a {
 .sync-loader__progress {
   margin: 0;
   color: var(--muted);
+}
+
+.sync-loader__detail {
+  margin: -2px 0 0;
+  color: color-mix(in srgb, var(--muted) 82%, var(--accent));
+  font-size: 0.82rem;
 }
 
 .sync-loader__progress {
@@ -1732,6 +1753,19 @@ a {
   max-width: 380px;
 }
 
+.empty-state__icon {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 10px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: linear-gradient(145deg, rgba(125, 241, 207, 0.14), rgba(125, 241, 207, 0.04));
+  border: 1px solid rgba(125, 241, 207, 0.22);
+  box-shadow: 0 12px 34px rgba(125, 241, 207, 0.1);
+}
+
 .empty-state__title {
   margin: 0 0 8px;
   font-size: 1.2rem;
@@ -2527,6 +2561,10 @@ a {
   gap: 14px;
 }
 
+.ftp-gate--editor {
+  min-height: 360px;
+}
+
 .ftp-gate__icon {
   display: grid;
   place-items: center;
@@ -2537,6 +2575,34 @@ a {
   background: linear-gradient(145deg, rgba(125, 241, 207, 0.16), rgba(125, 241, 207, 0.04));
   border: 1px solid rgba(125, 241, 207, 0.22);
   box-shadow: 0 14px 38px rgba(125, 241, 207, 0.12);
+}
+
+.ftp-gate__icon--logs {
+  color: #9fb1ff;
+  background: linear-gradient(145deg, rgba(159, 177, 255, 0.22), rgba(99, 118, 228, 0.12));
+  border-color: rgba(159, 177, 255, 0.34);
+  box-shadow: 0 14px 38px rgba(99, 118, 228, 0.18);
+}
+
+.ftp-gate__icon--crashes {
+  color: #ffbf73;
+  background: linear-gradient(145deg, rgba(255, 191, 115, 0.24), rgba(255, 124, 105, 0.1));
+  border-color: rgba(255, 191, 115, 0.34);
+  box-shadow: 0 14px 38px rgba(255, 124, 105, 0.16);
+}
+
+.ftp-gate__icon--roster {
+  color: #7df1cf;
+  background: linear-gradient(145deg, rgba(125, 241, 207, 0.2), rgba(74, 182, 145, 0.1));
+  border-color: rgba(125, 241, 207, 0.3);
+  box-shadow: 0 14px 38px rgba(74, 182, 145, 0.14);
+}
+
+.ftp-gate__icon--config {
+  color: #6ee7da;
+  background: linear-gradient(145deg, rgba(110, 231, 218, 0.22), rgba(74, 171, 186, 0.12));
+  border-color: rgba(110, 231, 218, 0.34);
+  box-shadow: 0 14px 38px rgba(74, 171, 186, 0.16);
 }
 
 .ftp-gate__title {
@@ -3040,7 +3106,7 @@ a {
   margin: 0;
   color: var(--muted);
   font-size: 0.86rem;
-  max-width: 560px;
+  max-width: none;
   line-height: 1.5;
 }
 
@@ -3113,6 +3179,36 @@ a {
   gap: 6px;
 }
 
+.crash-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crash-list-section__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.crash-list-section__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(215, 230, 238, 0.9);
+}
+
+.crash-list-section__meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.crash-list--featured {
+  gap: 8px;
+}
+
 .crash-list__row {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -3130,6 +3226,20 @@ a {
 }
 
 .crash-list__row.is-selected {
+  border-color: rgba(125, 241, 207, 0.4);
+  background: rgba(125, 241, 207, 0.06);
+}
+
+.crash-list__row--featured {
+  border-color: rgba(151, 191, 216, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.crash-list__row--featured:hover {
+  border-color: rgba(151, 191, 216, 0.3);
+}
+
+.crash-list__row--featured.is-selected {
   border-color: rgba(125, 241, 207, 0.4);
   background: rgba(125, 241, 207, 0.06);
 }
@@ -3332,7 +3442,8 @@ a {
 
 .panel-header__action-btn--primary {
   background: linear-gradient(135deg, rgba(125, 241, 207, 0.28), rgba(255, 203, 119, 0.22)) !important;
-  color: #0b1218 !important;
+  color: #eef4f8 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
   font-weight: 700 !important;
 }
 

@@ -5,12 +5,33 @@ import { CrashDumpsViewer } from './components/CrashDumpsViewer';
 import { FtpCard } from './components/FtpCard';
 import { LogsViewer } from './components/LogsViewer';
 import { PrivilegesEditor } from './components/PrivilegesEditor';
-import { IconChevron, IconDownload, IconFile, IconPlus, IconRefresh, IconUpload, IconX } from './components/Icons';
+import {
+  IconChevron,
+  IconCrash,
+  IconDownload,
+  IconFile,
+  IconLogs,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+  IconUpload,
+  IconUsers,
+  IconX,
+} from './components/Icons';
 import { useConfirm } from './hooks/useConfirm';
 import { useEditorState } from './hooks/useEditorState';
-import { ftpCheck, ftpDownload, ftpUpload, resolveSteamProfile, validateSteamIds } from './lib/api';
+import {
+  ftpCheck,
+  ftpDownload,
+  ftpListCrashes,
+  ftpListLogs,
+  ftpUpload,
+  resolveSteamProfile,
+  validateSteamIds,
+} from './lib/api';
 import { cfgPresets } from './lib/cfgPresets';
 import { detectFileType, findDuplicateCfgKeys, parseDocument, serializeDocument } from './lib/parser';
+import { buildFtpEndpointKey, crashViewCache, LOGS_MAX_AUTO_OPEN_BYTES, logsViewCache } from './lib/viewCache';
 import {
   DEFAULT_REMOTE_PATHS,
   FILE_TYPES,
@@ -39,6 +60,13 @@ const tabLabels = {
   [TAB_IDS.CFG]: 'Configuration',
   [TAB_IDS.LOGS]: 'Logs',
   [TAB_IDS.CRASHES]: 'Crash Dumps',
+};
+
+const tabIcons = {
+  [TAB_IDS.PRIVILEGES]: IconUsers,
+  [TAB_IDS.CFG]: IconSettings,
+  [TAB_IDS.LOGS]: IconLogs,
+  [TAB_IDS.CRASHES]: IconCrash,
 };
 
 const blankSnapshots = {
@@ -128,6 +156,7 @@ export default function App() {
   const [connectLoadState, setConnectLoadState] = useState({
     active: false,
     message: '',
+    detail: '',
     completed: 0,
     total: 0,
   });
@@ -143,6 +172,14 @@ export default function App() {
   const fileInputRef = useRef(null);
   const dragCounterRef = useRef(0);
   const [draggingOver, setDraggingOver] = useState(false);
+  const [logsRefreshToken, setLogsRefreshToken] = useState(0);
+  const [crashRefreshToken, setCrashRefreshToken] = useState(0);
+  const [logsShortcutCommand, setLogsShortcutCommand] = useState('');
+  const [crashShortcutCommand, setCrashShortcutCommand] = useState('');
+
+  function markTabSynced() {
+    // Sync stamps are intentionally hidden in the current UI.
+  }
 
   useEffect(() => {
     latestStateRef.current = state;
@@ -555,12 +592,9 @@ export default function App() {
   async function handleLoadFromFtp(targetFileType = null, silent = false) {
     const ft = targetFileType || state.activeFileType;
     const docState = latestStateRef.current.documents[ft];
-    const hasContent = docState.source.kind !== 'blank';
     const isDirtyDoc = serializeDocument(docState.document) !== docState.snapshot;
-    if (!silent && (isDirtyDoc || hasContent)) {
-      const message = isDirtyDoc
-        ? `You have unsaved changes to ${fileLabels[ft]}. Replace your working copy with the server version?`
-        : `Replace your working copy of ${fileLabels[ft]} with the server version?`;
+    if (!silent && isDirtyDoc) {
+      const message = `You have unsaved changes to ${fileLabels[ft]}. Replace your working copy with the server version?`;
       const confirmed = await confirm(message, {
         title: 'Replace working copy',
         confirmLabel: 'Replace',
@@ -577,7 +611,10 @@ export default function App() {
         setActive: !silent,
         notifyOnSuccess: !silent,
       });
-      if (loaded) setFtpSessionConnected(true);
+      if (loaded) {
+        setFtpSessionConnected(true);
+        markTabSynced(ft);
+      }
     } catch (error) {
       if (!silent) notify(error.message || 'FTP download failed.', 'error');
     } finally {
@@ -600,16 +637,14 @@ export default function App() {
   async function handleConnectAndLoadAll() {
     const initialActiveFileType = latestStateRef.current.activeFileType;
     const preferredOrder = [FILE_TYPES.CFG, FILE_TYPES.PRIVILEGES];
+    const totalSteps = 4;
     const targets = [];
 
     for (const ft of preferredOrder) {
       const docState = latestStateRef.current.documents[ft];
-      const hasContent = docState.source.kind !== 'blank';
       const isDirtyDoc = serializeDocument(docState.document) !== docState.snapshot;
-      if (isDirtyDoc || hasContent) {
-        const message = isDirtyDoc
-          ? `You have unsaved changes to ${fileLabels[ft]}. Replace with the server version?`
-          : `Replace your working copy of ${fileLabels[ft]} with the server version?`;
+      if (isDirtyDoc) {
+        const message = `You have unsaved changes to ${fileLabels[ft]}. Replace with the server version?`;
         const confirmed = await confirm(message, {
           title: 'Replace working copy',
           confirmLabel: 'Replace',
@@ -628,24 +663,24 @@ export default function App() {
     setBusy(true);
     setConnectLoadState({
       active: true,
-      message: 'Downloading server files…',
-      completed: 0,
-      total: targets.length,
+      message: 'Downloading core server files…',
+      detail: 'Fetching Admin roster and Configuration',
+      completed: 1,
+      total: totalSteps,
     });
 
     try {
-      let completed = 0;
       const settled = await Promise.allSettled(targets.map(async (ft) => {
         const payload = getFtpPayload(ft);
         const result = await ftpDownload(payload);
         return { fileType: ft, content: result.content || '', remotePath: payload.remotePath };
       }));
 
-      completed = targets.length;
       setConnectLoadState((prev) => ({
         ...prev,
-        message: 'Applying files…',
-        completed,
+        message: 'Applying downloaded files…',
+        detail: 'Validating entries and preparing your workspace',
+        completed: 2,
       }));
 
       const successes = [];
@@ -667,7 +702,96 @@ export default function App() {
           setActive: false,
           notifyOnSuccess: false,
         });
+        markTabSynced(loaded.fileType);
       }
+
+      if (orderedSuccesses.length > 0) {
+        setConnectLoadState((prev) => ({
+          ...prev,
+          message: 'Preparing diagnostics views…',
+          detail: 'Gathering latest logs and searching for crash dumps',
+          completed: 3,
+        }));
+
+        const authPayload = {
+          host: state.ftp.host.trim(),
+          port: state.ftp.port ? Number(state.ftp.port) : 21,
+          username: state.ftp.username.trim(),
+          password: state.ftp.password,
+        };
+        const endpointKey = buildFtpEndpointKey(authPayload);
+        const [logsResult, crashesResult] = await Promise.allSettled([
+          ftpListLogs({ ...authPayload, dir: '/', limit: 10 }),
+          ftpListCrashes({ ...authPayload, dir: '/Diagnostics' }),
+        ]);
+
+        if (logsResult.status === 'fulfilled') {
+          const fetchedAt = new Date().toISOString();
+          const logEntries = logsResult.value.entries || [];
+          const totalMatched = Number(logsResult.value.totalMatched) || logEntries.length;
+          const firstLog = logEntries[0] || null;
+          let preloadedLogText = '';
+          let preloadedLogPath = null;
+
+          if (firstLog && (firstLog.size || 0) > 0 && firstLog.size <= LOGS_MAX_AUTO_OPEN_BYTES) {
+            try {
+              const firstLogResult = await ftpDownload({ ...authPayload, remotePath: firstLog.path });
+              preloadedLogText = firstLogResult.content || '';
+              preloadedLogPath = firstLog.path;
+            } catch {
+              preloadedLogText = '';
+              preloadedLogPath = null;
+            }
+          }
+
+          logsViewCache.endpointKey = endpointKey;
+          logsViewCache.entries = logEntries;
+          logsViewCache.totalMatched = totalMatched;
+          logsViewCache.fetchedAt = fetchedAt;
+          logsViewCache.selectedPath = firstLog?.path || null;
+          logsViewCache.logText = preloadedLogText;
+          logsViewCache.logPath = preloadedLogPath;
+          logsViewCache.search = '';
+          logsViewCache.levelFilter = [];
+          logsViewCache.categoryFilter = [];
+          logsViewCache.yearFilter = 'recent';
+          logsViewCache.pageSize = 500;
+          markTabSynced(TAB_IDS.LOGS, fetchedAt);
+        }
+
+        if (crashesResult.status === 'fulfilled') {
+          const fetchedAt = new Date().toISOString();
+          const crashEntries = crashesResult.value.entries || [];
+          const latestRootLog = logsResult.status === 'fulfilled' ? (logsResult.value.entries || [])[0] : null;
+          const merged = [...crashEntries];
+          if (latestRootLog && (latestRootLog.size || 0) > 0 && !merged.some((e) => e.path === latestRootLog.path)) {
+            merged.push({
+              name: latestRootLog.name,
+              path: latestRootLog.path,
+              size: latestRootLog.size,
+              modifiedAt: latestRootLog.modifiedAt,
+            });
+          }
+          merged.sort((a, b) => {
+            const aT = a.modifiedAt ? Date.parse(a.modifiedAt) : 0;
+            const bT = b.modifiedAt ? Date.parse(b.modifiedAt) : 0;
+            return bT - aT;
+          });
+
+          crashViewCache.endpointKey = endpointKey;
+          crashViewCache.entries = merged;
+          crashViewCache.selectionPaths = [];
+          crashViewCache.fetchedAt = fetchedAt;
+          markTabSynced(TAB_IDS.CRASHES, fetchedAt);
+        }
+      }
+
+      setConnectLoadState((prev) => ({
+        ...prev,
+        message: 'Finalizing workspace…',
+        detail: 'Applying your selected view and controls',
+        completed: 4,
+      }));
 
       dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: initialActiveFileType });
       ftpPreloadDoneRef.current = true;
@@ -686,7 +810,13 @@ export default function App() {
       return false;
     } finally {
       setBusy(false);
-      setConnectLoadState({ active: false, message: '', completed: 0, total: 0 });
+      setConnectLoadState({
+        active: false,
+        message: '',
+        detail: '',
+        completed: 0,
+        total: 0,
+      });
     }
   }
 
@@ -720,7 +850,6 @@ export default function App() {
       }
     }
 
-    // Show confirmation for each file individually
     setUploadConfirm({ fileTypes: dirtyFileTypes, index: 0, uploaded: [] });
   }
 
@@ -786,11 +915,45 @@ export default function App() {
     notify(`Downloaded ${buildDownloadName(state.activeFileType)}.`, 'success');
   }
 
+
   const ftpConnectedFromDocs = Object.values(state.documents).some(
     (ds) => ds.source.kind === 'ftp',
   );
   const ftpConnected = ftpSessionConnected || ftpConnectedFromDocs;
+  const showEditorUnauthedIcon = EDITOR_TABS.has(activeTab) && !ftpConnected;
   const canSync = !busy && !!state.ftp.host && !!state.ftp.username && !!state.ftp.password;
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.altKey && event.key === 'ArrowRight') {
+        event.preventDefault();
+        const idx = TAB_ORDER.indexOf(activeTab);
+        const next = TAB_ORDER[(idx + 1) % TAB_ORDER.length];
+        setActiveTab(next);
+        if (EDITOR_TABS.has(next)) dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: next });
+        return;
+      }
+      if (event.altKey && event.key === 'ArrowLeft') {
+        event.preventDefault();
+        const idx = TAB_ORDER.indexOf(activeTab);
+        const next = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+        setActiveTab(next);
+        if (EDITOR_TABS.has(next)) dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: next });
+        return;
+      }
+      if (activeTab === TAB_IDS.LOGS && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === '/') {
+        event.preventDefault();
+        setLogsShortcutCommand(`focus-search:${Date.now()}`);
+        return;
+      }
+      if (activeTab === TAB_IDS.LOGS && event.altKey && event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        setLogsShortcutCommand(`load-more:${Date.now()}`);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTab]);
 
   const isDirty = serializedCurrent !== currentDocumentState.snapshot;
   const bannerToneClass = visibleStatus
@@ -837,25 +1000,29 @@ export default function App() {
 
       <div className="toolbar">
         <div className="tab-switcher">
-          {TAB_ORDER.map((tabId) => (
-            <button
-              key={tabId}
-              type="button"
-              className={`tab-switcher__button ${activeTab === tabId ? 'is-active' : ''}`}
-              onClick={() => {
-                setActiveTab(tabId);
-                if (EDITOR_TABS.has(tabId)) {
-                  dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: tabId });
-                  const docState = latestStateRef.current.documents[tabId];
-                  if (docState.source.kind === 'blank' && ftpSessionConnected) {
-                    handleLoadFromFtp(tabId, true);
+          {TAB_ORDER.map((tabId) => {
+            const TabIcon = tabIcons[tabId];
+            return (
+              <button
+                key={tabId}
+                type="button"
+                className={`tab-switcher__button ${activeTab === tabId ? 'is-active' : ''}`}
+                onClick={() => {
+                  setActiveTab(tabId);
+                  if (EDITOR_TABS.has(tabId)) {
+                    dispatch({ type: 'SET_ACTIVE_FILE_TYPE', fileType: tabId });
+                    const docState = latestStateRef.current.documents[tabId];
+                    if (docState.source.kind === 'blank' && ftpSessionConnected) {
+                      handleLoadFromFtp(tabId, true);
+                    }
                   }
-                }
-              }}
-            >
-              {tabLabels[tabId]}
-            </button>
-          ))}
+                }}
+              >
+                <TabIcon width="14" height="14" aria-hidden="true" />
+                <span className="tab-switcher__label">{tabLabels[tabId]}</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="toolbar__actions">
@@ -880,7 +1047,7 @@ export default function App() {
                 <IconUpload /> Publish changes
               </button>
               <button type="button" className="toolbar-menu__item" onClick={() => handleLoadFromFtp()} disabled={!canSync}>
-                <IconRefresh /> Sync from server
+                <IconRefresh /> Resync from server
               </button>
             </DropdownMenu>
           )}
@@ -938,10 +1105,22 @@ export default function App() {
 
       <main className="workspace-grid">
         <div className="workspace-main">
-          {activeTab === TAB_IDS.LOGS ? (
+          {connectLoadState.active ? (
+            <div className="card-shell sync-loader" role="status" aria-live="polite">
+              <div className="sync-loader__ring" />
+              <p className="eyebrow">Server sync</p>
+              <h2 className="sync-loader__title">Loading server files</h2>
+              <p className="sync-loader__copy">{connectLoadState.message}</p>
+              {connectLoadState.detail ? <p className="sync-loader__detail">{connectLoadState.detail}</p> : null}
+              <p className="sync-loader__progress">{connectLoadState.completed}/{connectLoadState.total} complete</p>
+            </div>
+          ) : activeTab === TAB_IDS.LOGS ? (
             <LogsViewer
               ftp={state.ftp}
               ftpReady={ftpConnected && canSync}
+              refreshToken={logsRefreshToken}
+              shortcutCommand={logsShortcutCommand}
+              onRefreshed={({ fetchedAt }) => markTabSynced(TAB_IDS.LOGS, fetchedAt)}
               onRequestConnect={async () => {
                 if (!canSync) {
                   notify('Fill in your FTP credentials first (host, user, password).', 'neutral');
@@ -956,6 +1135,9 @@ export default function App() {
             <CrashDumpsViewer
               ftp={state.ftp}
               ftpReady={ftpConnected && canSync}
+              refreshToken={crashRefreshToken}
+              shortcutCommand={crashShortcutCommand}
+              onRefreshed={({ fetchedAt }) => markTabSynced(TAB_IDS.CRASHES, fetchedAt)}
               onRequestConnect={async () => {
                 if (!canSync) {
                   notify('Fill in your FTP credentials first (host, user, password).', 'neutral');
@@ -965,31 +1147,63 @@ export default function App() {
               }}
               notify={notify}
             />
-          ) : connectLoadState.active ? (
-            <div className="card-shell sync-loader" role="status" aria-live="polite">
-              <div className="sync-loader__ring" />
-              <p className="eyebrow">Server sync</p>
-              <h2 className="sync-loader__title">Loading server files</h2>
-              <p className="sync-loader__copy">{connectLoadState.message}</p>
-              <p className="sync-loader__progress">{connectLoadState.completed}/{connectLoadState.total} complete</p>
-            </div>
           ) : isBlank ? (
-            <div className="card-shell empty-state">
-              <div className="empty-state__inner">
-                <h2 className="empty-state__title">No data loaded</h2>
-                <p className="empty-state__copy">Connect to FTP and download your server files, or drag &amp; drop a file here.</p>
+            showEditorUnauthedIcon ? (
+              <div className="card-shell ftp-gate ftp-gate--editor">
+                <div
+                  className={`ftp-gate__icon ${state.activeFileType === FILE_TYPES.CFG ? 'ftp-gate__icon--config' : 'ftp-gate__icon--roster'}`}
+                  aria-hidden
+                >
+                  {state.activeFileType === FILE_TYPES.CFG
+                    ? <IconSettings width="32" height="32" />
+                    : <IconUsers width="32" height="32" />}
+                </div>
+                <h2 className="ftp-gate__title">
+                  {state.activeFileType === FILE_TYPES.CFG ? 'Connect or load configuration' : 'Connect or load admin roster'}
+                </h2>
+                <p className="ftp-gate__copy">
+                  {state.activeFileType === FILE_TYPES.CFG
+                    ? 'Pull dedicated.cfg from your FTP server, or load a local file to start editing.'
+                    : 'Pull privileges.xml from your FTP server, or load a local file to start editing.'}
+                </p>
                 <div className="button-row">
-                  {state.activeFileType !== FILE_TYPES.CFG && (
-                    <button type="button" className="button button--primary" onClick={handleNewBlank}>
-                      <IconPlus /> Start blank {fileLabels[state.activeFileType]}
-                    </button>
-                  )}
-                  <button type="button" className={`button ${state.activeFileType === FILE_TYPES.CFG ? 'button--primary' : 'button--ghost'}`} onClick={() => fileInputRef.current?.click()}>
-                    <IconFile /> Open from computer
+                  <button
+                    type="button"
+                    className="button button--primary"
+                    onClick={async () => {
+                      if (!canSync) {
+                        notify('Fill in your FTP credentials first (host, user, password).', 'neutral');
+                        return;
+                      }
+                      await handleConnectAndLoadAll();
+                    }}
+                  >
+                    Connect &amp; Load
+                  </button>
+                  <button type="button" className="button button--ghost" onClick={() => fileInputRef.current?.click()}>
+                    <IconFile /> Load from computer
                   </button>
                 </div>
+                <p className="ftp-gate__hint">Use the FTP panel on the right, then connect when ready.</p>
               </div>
-            </div>
+            ) : (
+              <div className="card-shell empty-state">
+                <div className="empty-state__inner">
+                  <h2 className="empty-state__title">No data loaded</h2>
+                  <p className="empty-state__copy">Load a file from your computer, or create a new blank document to get started.</p>
+                  <div className="button-row">
+                    {state.activeFileType !== FILE_TYPES.CFG && (
+                      <button type="button" className="button button--primary" onClick={handleNewBlank}>
+                        <IconPlus /> Start blank {fileLabels[state.activeFileType]}
+                      </button>
+                    )}
+                    <button type="button" className={`button ${state.activeFileType === FILE_TYPES.CFG ? 'button--primary' : 'button--ghost'}`} onClick={() => fileInputRef.current?.click()}>
+                      <IconFile /> Open from computer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
           ) : null}
 
           {EDITOR_TABS.has(activeTab) && !isBlank && state.activeFileType === FILE_TYPES.PRIVILEGES ? (
