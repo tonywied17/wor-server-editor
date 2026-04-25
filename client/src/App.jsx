@@ -1046,7 +1046,7 @@ export default function App() {
               <button type="button" className="toolbar-menu__item" onClick={handleUploadToFtp} disabled={busy || !canSync || !isDirty}>
                 <IconUpload /> Publish changes
               </button>
-              <button type="button" className="toolbar-menu__item" onClick={() => handleLoadFromFtp()} disabled={!canSync}>
+              <button type="button" className="toolbar-menu__item" onClick={() => handleConnectAndLoadAll()} disabled={!canSync}>
                 <IconRefresh /> Resync from server
               </button>
             </DropdownMenu>
@@ -1250,7 +1250,7 @@ export default function App() {
           onSaveProfile={() => notify('FTP profile saved.', 'success')}
           onTest={handleTestFtp}
           onConnect={handleConnectAndLoadAll}
-          onSync={() => handleLoadFromFtp()}
+          onSync={() => handleConnectAndLoadAll()}
           onPublish={handleUploadToFtp}
           onLoadProfile={(profile) => {
             setFtpSessionConnected(false);

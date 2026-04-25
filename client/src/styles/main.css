@@ -3412,20 +3412,15 @@ a {
 
 /* -- Refactor additions (consistent headers, year select, load-more, zebra) -- */
 
-.panel-header--logs {
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(151, 191, 216, 0.08);
-  background: linear-gradient(120deg, rgba(125, 241, 207, 0.05), rgba(120, 160, 240, 0.04) 52%, rgba(255, 255, 255, 0.01));
-}
-
+.panel-header--roster,
+.panel-header--config,
+.panel-header--logs,
 .panel-header--crashes {
   margin-bottom: 14px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 139, 135, 0.1);
-  background: linear-gradient(120deg, rgba(255, 139, 135, 0.06), rgba(255, 203, 119, 0.04) 52%, rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(151, 191, 216, 0.08);
+  background: linear-gradient(120deg, rgba(125, 241, 207, 0.05), rgba(255, 203, 119, 0.04) 52%, rgba(255, 255, 255, 0.01));
 }
 
 .panel-header--logs.panel-header--tight,
