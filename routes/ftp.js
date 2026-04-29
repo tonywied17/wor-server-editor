@@ -92,6 +92,20 @@ function requireCreds(req, res) {
   return true;
 }
 
+function respondFtpError(res, err) {
+  const code = err?.code;
+  if (code === 'ETIMEDOUT') {
+    return res.status(504).json({ error: 'FTP connection timed out. Verify host, port, firewall, and FTP service.' });
+  }
+  if (code === 'ECONNRESET') {
+    return res.status(502).json({ error: 'FTP connection was reset by remote host or network path.' });
+  }
+  if (code === 'ECONNREFUSED') {
+    return res.status(502).json({ error: 'FTP connection was refused. Verify host, port, and FTP service status.' });
+  }
+  return res.status(500).json({ error: err?.message || String(err) });
+}
+
 /**
  * POST /api/ftp/download
  * Download a file from the remote FTP server as UTF-8 text.
@@ -104,7 +118,7 @@ router.post('/download', async (req, res) => {
     const buffer = await withSession(profile, (session) => readToBuffer(session, target));
     res.json({ ok: true, content: buffer.toString('utf8') });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -121,7 +135,7 @@ router.post('/upload', async (req, res) => {
     await withSession(profile, (session) => writeFromBuffer(session, target, req.body.content));
     res.json({ ok: true, uploadedTo: target });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -145,7 +159,7 @@ router.post('/check', async (req, res) => {
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -207,7 +221,7 @@ router.post('/list-logs', async (req, res) => {
 
     res.json({ ok: true, ...entries });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -267,7 +281,7 @@ router.post('/list-crashes', async (req, res) => {
 
     res.json({ ok: true, entries, baseDir });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -296,7 +310,7 @@ router.post('/download-binary', async (req, res) => {
     }
     res.json({ ok: true, base64: buffer.toString('base64'), size: buffer.length });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 
@@ -313,7 +327,7 @@ router.post('/delete', async (req, res) => {
     await withSession(profile, (session) => session.fs.remove(req.body.remotePath));
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || String(err) });
+    respondFtpError(res, err);
   }
 });
 

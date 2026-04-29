@@ -25,7 +25,14 @@ const app = createApp();
 
 app.use(helmet());
 app.use(logger());
-app.use(cors({ origin: env.CORS_ORIGIN }));
+app.use(cors({
+  origin: env.CORS_ORIGIN.includes(',')
+    ? env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean)
+    : env.CORS_ORIGIN,
+  methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  allowedHeaders: 'Content-Type,Authorization,X-Requested-With,Accept,Origin',
+  maxAge: 86400,
+}));
 app.use(json({ limit: '5mb' }));
 
 const api = Router();
