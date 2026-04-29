@@ -1,4 +1,6 @@
-const { Router, fetch, env } = require('zero-http');
+const { Router } = require('@zero-server/core');
+const { fetch } = require('@zero-server/fetch');
+const { env } = require('@zero-server/env');
 const { parse, extractString } = require('molex-xml-js');
 
 const router = Router();
