@@ -207,13 +207,16 @@ export function FtpCard({
         )}
       </div>
 
-      <input
-        className="field-input field-input--sm form-grid__full"
-        type="password"
-        value={ftp.password}
-        onChange={(e) => onFieldChange('password', e.target.value)}
-        placeholder="Password (session only)"
-      />
+      <form onSubmit={(e) => e.preventDefault()}>
+        <input
+          className="field-input field-input--sm form-grid__full"
+          type="password"
+          value={ftp.password}
+          onChange={(e) => onFieldChange('password', e.target.value)}
+          placeholder="Password (session only)"
+          autoComplete="current-password"
+        />
+      </form>
 
       {!ftp.password && ftp.host && (
         <p className="ftp-hint">Enter password to enable FTP actions</p>

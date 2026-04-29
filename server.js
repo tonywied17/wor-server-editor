@@ -23,12 +23,33 @@ env.load({
 
 const app = createApp();
 
-app.use(helmet());
+const isProduction = process.env.NODE_ENV === 'production';
+const configuredOrigins = env.CORS_ORIGIN.includes(',')
+  ? env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean)
+  : [env.CORS_ORIGIN];
+const corsOrigins = isProduction
+  ? configuredOrigins
+  : Array.from(new Set([
+    ...configuredOrigins,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:7272',
+    'http://127.0.0.1:7272',
+  ]));
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      connectSrc: ["'self'", 'https://media-api.molex.cloud'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+    },
+  },
+}));
 app.use(logger());
 app.use(cors({
-  origin: env.CORS_ORIGIN.includes(',')
-    ? env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean)
-    : env.CORS_ORIGIN,
+  origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
   methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   allowedHeaders: 'Content-Type,Authorization,X-Requested-With,Accept,Origin',
   maxAge: 86400,

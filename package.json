@@ -15,8 +15,8 @@
     "@zero-server/env": "^0.9.1",
     "@zero-server/fetch": "^0.9.1",
     "@zero-server/middleware": "^0.9.1",
-    "@zero-transfer/core": "^0.1.4",
-    "@zero-transfer/ftp": "^0.1.4",
+    "@zero-transfer/core": "^0.1.6",
+    "@zero-transfer/ftp": "^0.1.6",
     "molex-xml-js": "^0.3.3"
   },
   "devDependencies": {
