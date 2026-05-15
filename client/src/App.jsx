@@ -345,6 +345,26 @@ export default function App() {
     }
   }
 
+  // Seed a fresh blank doc anchored to an FTP remote path. Used when the
+  // server reports the file does not exist yet so the user can edit and
+  // publish a new copy (the upload will create the remote file).
+  function seedBlankFtpDocument(fileType, remotePath) {
+    const document = fileType === FILE_TYPES.CFG
+      ? createBlankCfgDocument()
+      : createBlankPrivilegesDocument();
+    const snapshot = serializeDocument(document);
+    dispatch({
+      type: 'LOAD_DOCUMENT',
+      fileType,
+      setActive: false,
+      rawInput: '',
+      document,
+      snapshot,
+      source: { kind: 'ftp', remotePath },
+      saveState: { savedAt: null, channel: null },
+    });
+  }
+
   async function loadTextIntoDocument(text, preferredFileType, sourceKind, remotePath = null, options = {}) {
     const { setActive = true, notifyOnSuccess = true } = options;
     let targetFileType = preferredFileType;
@@ -607,6 +627,18 @@ export default function App() {
     try {
       const payload = getFtpPayload(ft);
       const result = await ftpDownload(payload);
+      if (result.exists === false) {
+        seedBlankFtpDocument(ft, payload.remotePath);
+        setFtpSessionConnected(true);
+        markTabSynced(ft);
+        if (!silent) {
+          notify(
+            `${fileLabels[ft]} was not found at ${payload.remotePath}. A new file will be created on the server when you publish.`,
+            'neutral',
+          );
+        }
+        return;
+      }
       const loaded = await loadTextIntoDocument(result.content || '', ft, 'ftp', payload.remotePath, {
         setActive: !silent,
         notifyOnSuccess: !silent,
@@ -673,7 +705,12 @@ export default function App() {
       const settled = await Promise.allSettled(targets.map(async (ft) => {
         const payload = getFtpPayload(ft);
         const result = await ftpDownload(payload);
-        return { fileType: ft, content: result.content || '', remotePath: payload.remotePath };
+        return {
+          fileType: ft,
+          content: result.content || '',
+          remotePath: payload.remotePath,
+          exists: result.exists !== false,
+        };
       }));
 
       setConnectLoadState((prev) => ({
@@ -698,10 +735,14 @@ export default function App() {
       });
 
       for (const loaded of orderedSuccesses) {
-        await loadTextIntoDocument(loaded.content, loaded.fileType, 'ftp', loaded.remotePath, {
-          setActive: false,
-          notifyOnSuccess: false,
-        });
+        if (!loaded.exists) {
+          seedBlankFtpDocument(loaded.fileType, loaded.remotePath);
+        } else {
+          await loadTextIntoDocument(loaded.content, loaded.fileType, 'ftp', loaded.remotePath, {
+            setActive: false,
+            notifyOnSuccess: false,
+          });
+        }
         markTabSynced(loaded.fileType);
       }
 
@@ -802,7 +843,21 @@ export default function App() {
       });
 
       if (orderedSuccesses.length > 0) {
-        notify(`Loaded ${orderedSuccesses.map(({ fileType }) => fileLabels[fileType]).join(' and ')}.`, 'success');
+        const loadedLabels = orderedSuccesses
+          .filter((s) => s.exists)
+          .map((s) => fileLabels[s.fileType]);
+        const seededLabels = orderedSuccesses
+          .filter((s) => !s.exists)
+          .map((s) => fileLabels[s.fileType]);
+        if (loadedLabels.length > 0) {
+          notify(`Loaded ${loadedLabels.join(' and ')}.`, 'success');
+        }
+        if (seededLabels.length > 0) {
+          notify(
+            `${seededLabels.join(' and ')} not found on server. Edit and publish to create.`,
+            'neutral',
+          );
+        }
       }
       return orderedSuccesses.length > 0;
     } catch (error) {

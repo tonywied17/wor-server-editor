@@ -116,8 +116,13 @@ router.post('/download', async (req, res) => {
   const target = req.body.remotePath || '/Assets/privileges.xml';
   try {
     const buffer = await withSession(profile, (session) => readToBuffer(session, target));
-    res.json({ ok: true, content: buffer.toString('utf8') });
+    res.json({ ok: true, exists: true, content: buffer.toString('utf8') });
   } catch (err) {
+    // Treat a missing file as a successful, empty download so the client can
+    // seed a blank document and create the file on the next publish.
+    if (err instanceof PathNotFoundError) {
+      return res.json({ ok: true, exists: false, content: '' });
+    }
     respondFtpError(res, err);
   }
 });
